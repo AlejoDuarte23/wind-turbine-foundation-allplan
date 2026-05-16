@@ -974,12 +974,12 @@ class Controller(vkt.Controller):
             projected_pile_lines.append(
                 f'<line x1="{sx(pile["x"] - pile_r):.2f}" y1="{sy(0.0):.2f}" '
                 f'x2="{sx(pile["x"] - pile_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
-                f'stroke="#c4c4c4" stroke-width="0.8" stroke-dasharray="5 6"/>'
+                f'stroke="#dedede" stroke-width="0.65" stroke-dasharray="5 8"/>'
             )
             projected_pile_lines.append(
                 f'<line x1="{sx(pile["x"] + pile_r):.2f}" y1="{sy(0.0):.2f}" '
                 f'x2="{sx(pile["x"] + pile_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
-                f'stroke="#c4c4c4" stroke-width="0.8" stroke-dasharray="5 6"/>'
+                f'stroke="#dedede" stroke-width="0.65" stroke-dasharray="5 8"/>'
             )
 
         pile_lines = []
@@ -1015,72 +1015,50 @@ class Controller(vkt.Controller):
         outer = foundation_radius - cover
         top_inner = max(cover, pedestal_radius * 0.35)
         bottom_y = sy(cover)
-        bottom_rebar = (
-            f'<line x1="{sx(-outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(0.0):.2f}" y2="{bottom_y:.2f}" stroke="#949494" stroke-width="2.6"/>'
-            f'<line x1="{sx(0.0):.2f}" y1="{bottom_y:.2f}" x2="{sx(outer):.2f}" y2="{bottom_y:.2f}" stroke="#949494" stroke-width="2.6"/>'
-        )
+        bottom_rebar = f'<line x1="{sx(-outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(outer):.2f}" y2="{bottom_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
         top_left = cls._section_top_polyline(data, -outer, -top_inner, scale, cx, base_y)
         top_right = cls._section_top_polyline(data, top_inner, outer, scale, cx, base_y)
         top_rebar = (
-            f'<polyline points="{top_left}" fill="none" stroke="#3f3f3f" stroke-width="2.6"/>'
-            f'<polyline points="{top_right}" fill="none" stroke="#3f3f3f" stroke-width="2.6"/>'
+            f'<polyline points="{top_left}" fill="none" stroke="#3f3f3f" stroke-width="2.1"/>'
+            f'<polyline points="{top_right}" fill="none" stroke="#3f3f3f" stroke-width="2.1"/>'
         )
 
         section_rebar_marks = []
-        section_radii = cls._sample_positions(cls._radii_between(top_inner, outer, data["ring_spacing"]), max_count=8)
-        for radius in section_radii:
-            top_z = cls._foundation_top_z(data, radius) - cover
-            for side in [-1.0, 1.0]:
-                x = sx(side * radius)
-                section_rebar_marks.append(
-                    f'<line x1="{x:.2f}" y1="{sy(top_z):.2f}" x2="{x:.2f}" y2="{bottom_y:.2f}" '
-                    f'stroke="#b8b8b8" stroke-width="0.75"/>'
-                )
-                section_rebar_marks.append(
-                    f'<circle cx="{x:.2f}" cy="{sy(top_z):.2f}" r="3.2" fill="#4d4d4d" stroke="#222" stroke-width="0.7"/>'
-                )
-                section_rebar_marks.append(
-                    f'<circle cx="{x:.2f}" cy="{bottom_y:.2f}" r="3.2" fill="#6f6f6f"/>'
-                )
+        slope_gap = max(300.0, data["pile_diameter"] * 0.35)
+        for x_offset in cls._equal_values(-outer, -(pedestal_radius + slope_gap), 8):
+            top_z = cls._foundation_top_z(data, abs(x_offset)) - cover
+            section_rebar_marks.append(cls._section_drop_line(sx(x_offset), sy(top_z), bottom_y))
+            section_rebar_marks.append(cls._section_dot(sx(x_offset), sy(top_z), 2.85, "#4d4d4d"))
+        for x_offset in cls._equal_values(pedestal_radius + slope_gap, outer, 8):
+            top_z = cls._foundation_top_z(data, abs(x_offset)) - cover
+            section_rebar_marks.append(cls._section_drop_line(sx(x_offset), sy(top_z), bottom_y))
+            section_rebar_marks.append(cls._section_dot(sx(x_offset), sy(top_z), 2.85, "#4d4d4d"))
 
-        ring_dots = []
-        ring_radii = cls._sample_positions(cls._radii_between(pedestal_radius + cover, outer, data["ring_spacing"]), max_count=8)
-        for radius in ring_radii:
-            for side in [-1.0, 1.0]:
-                ring_dots.append(
-                    f'<circle cx="{sx(side * radius):.2f}" cy="{bottom_y:.2f}" r="3.1" fill="#707070"/>'
-                )
+        bottom_dots = []
+        for x_offset in cls._equal_values(-outer, outer, 21):
+            bottom_dots.append(cls._section_dot(sx(x_offset), bottom_y, 2.75, "#6f6f6f"))
 
         pedestal_section_rebar = []
         grid_half = pedestal_radius - cover
         grid_bottom_z = center_h + cover
         grid_top_z = center_h + pedestal_h - cover
-        dot_radius = max(3.2, data["pedestal_grid_bar_diameter"] * scale * 1.1)
+        dot_radius = 3.05
         pedestal_section_rebar.append(
             f'<rect x="{sx(-grid_half):.2f}" y="{sy(grid_top_z):.2f}" '
             f'width="{2.0 * grid_half * scale:.2f}" height="{(grid_top_z - grid_bottom_z) * scale:.2f}" '
-            f'fill="none" stroke="#2f2f2f" stroke-width="1.7"/>'
+            f'fill="none" stroke="#2f2f2f" stroke-width="1.5"/>'
         )
-        tie_positions = cls._sample_positions(
-            cls._positions_between(grid_bottom_z, grid_top_z, data["pedestal_tie_spacing"]),
-            max_count=8,
-        )
+        tie_positions = cls._equal_values(grid_bottom_z + data["pedestal_tie_spacing"] * 0.5, grid_top_z - data["pedestal_tie_spacing"] * 0.5, 5)
         for z in tie_positions:
             pedestal_section_rebar.append(
                 f'<line x1="{sx(-grid_half):.2f}" y1="{sy(z):.2f}" '
                 f'x2="{sx(grid_half):.2f}" y2="{sy(z):.2f}" '
-                f'stroke="#5f5f5f" stroke-width="1.1" stroke-dasharray="7 4"/>'
+                f'stroke="#777777" stroke-width="0.85" stroke-dasharray="7 5"/>'
             )
-        section_bar_positions = cls._sample_positions(
-            cls._positions_between(-grid_half, grid_half, data["pedestal_grid_spacing"]),
-            max_count=9,
-        )
+        section_bar_positions = cls._equal_values(-grid_half + 160.0, grid_half - 160.0, 10)
         for x_offset in section_bar_positions:
             for z in [grid_top_z, grid_bottom_z]:
-                pedestal_section_rebar.append(
-                    f'<circle cx="{sx(x_offset):.2f}" cy="{sy(z):.2f}" r="{dot_radius:.2f}" '
-                    f'fill="#4d4d4d" stroke="#111111" stroke-width="1.3"/>'
-                )
+                pedestal_section_rebar.append(cls._section_dot(sx(x_offset), sy(z), dot_radius, "#4d4d4d", stroke="#222222"))
 
         return f"""
       <text x="{panel_x:.0f}" y="{panel_y:.0f}" font-size="16" font-weight="650" fill="#111">Section</text>
@@ -1090,7 +1068,7 @@ class Controller(vkt.Controller):
       {''.join(section_rebar_marks)}
       {bottom_rebar}
       {top_rebar}
-      {''.join(ring_dots)}
+      {''.join(bottom_dots)}
       {''.join(pedestal_section_rebar)}
       <line x1="{sx(0.0):.2f}" y1="{sy(-data["pile_depth"]):.2f}" x2="{sx(0.0):.2f}" y2="{sy(center_h + pedestal_h):.2f}" stroke="#7e7e7e" stroke-width="1" stroke-dasharray="8 6"/>
       <text x="{sx(0.0) + 12.0:.2f}" y="{sy(center_h + pedestal_h) + 18.0:.2f}" font-size="12" fill="#333">axis</text>
@@ -1114,6 +1092,24 @@ class Controller(vkt.Controller):
             z = cls._foundation_top_z(data, abs(radius)) - data["cover"]
             points.append(f"{cx + radius * scale:.2f},{base_y - z * scale:.2f}")
         return " ".join(points)
+
+    @staticmethod
+    def _section_dot(x: float, y: float, radius: float, fill: str, stroke: str | None = None) -> str:
+        stroke_part = f' stroke="{stroke}" stroke-width="0.65"' if stroke else ""
+        return f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{radius:.2f}" fill="{fill}"{stroke_part}/>'
+
+    @staticmethod
+    def _section_drop_line(x: float, y_top: float, y_bottom: float) -> str:
+        return (
+            f'<line x1="{x:.2f}" y1="{y_top:.2f}" x2="{x:.2f}" y2="{y_bottom:.2f}" '
+            f'stroke="#c7c7c7" stroke-width="0.65"/>'
+        )
+
+    @staticmethod
+    def _equal_values(start: float, end: float, count: int) -> list[float]:
+        if count <= 1:
+            return [(start + end) / 2.0]
+        return [start + (end - start) * index / (count - 1) for index in range(count)]
 
     @staticmethod
     def _foundation_top_z(data: dict, radius: float) -> float:
