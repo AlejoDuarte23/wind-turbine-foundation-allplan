@@ -355,40 +355,53 @@ class Controller(vkt.Controller):
         ped_r = pedestal_radius * scale
         cover_r = max(0.0, (foundation_radius - data["cover"]) * scale)
 
+        pitch_r = data["pile_ring_radius"] * scale
         ring_marks = []
         ring_radii = cls._sample_positions(
             cls._radii_between(pedestal_radius + data["cover"], foundation_radius - data["cover"], data["ring_spacing"]),
-            max_count=7,
+            max_count=9,
         )
         for radius in ring_radii:
-            ring_marks.append(
-                f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{radius * scale:.2f}" '
-                f'fill="none" stroke="#969696" stroke-width="1"/>'
-            )
+            ring_marks.append(cls._trimmed_ring_svg(cx, cy, radius, data, scale))
 
         bottom_radials = []
-        for angle in cls._sample_angles(data["bottom_radial_bar_count"], 10, phase=math.pi / data["bottom_radial_bar_count"]):
-            x2 = cx + cover_r * math.cos(angle)
-            y2 = cy - cover_r * math.sin(angle)
+        for angle in cls._sample_angles(data["bottom_radial_bar_count"], 16, phase=math.pi / data["bottom_radial_bar_count"]):
             bottom_radials.append(
-                f'<line x1="{cx:.2f}" y1="{cy:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" '
-                f'stroke="#b7b7b7" stroke-width="1"/>'
+                cls._trimmed_radial_svg(
+                    cx,
+                    cy,
+                    angle,
+                    data["cover"],
+                    foundation_radius - data["cover"],
+                    data,
+                    scale,
+                    "#b7b7b7",
+                    1.0,
+                )
             )
 
         top_radials = []
-        top_inner = max(data["cover"], pedestal_radius * 0.35) * scale
-        for angle in cls._sample_angles(data["top_radial_bar_count"], 16):
-            x1 = cx + top_inner * math.cos(angle)
-            y1 = cy - top_inner * math.sin(angle)
-            x2 = cx + cover_r * math.cos(angle)
-            y2 = cy - cover_r * math.sin(angle)
+        top_inner = max(data["cover"], pedestal_radius * 0.35)
+        for angle in cls._sample_angles(data["top_radial_bar_count"], 24):
             top_radials.append(
-                f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" '
-                f'stroke="#575757" stroke-width="1.4"/>'
+                cls._trimmed_radial_svg(
+                    cx,
+                    cy,
+                    angle,
+                    top_inner,
+                    foundation_radius - data["cover"],
+                    data,
+                    scale,
+                    "#575757",
+                    1.35,
+                )
             )
 
         pile_marks = []
         pile_r = data["pile_diameter"] * scale / 2.0
+        cage_r = max(0.0, (data["pile_diameter"] / 2.0 - data["cover"]) * scale)
+        dot_r = max(1.6, data["pile_vertical_diameter"] * scale * 0.55)
+        display_pile_bars = min(data["pile_vertical_count"], 12)
         for pile in data["pile_centers"]:
             px = cx + pile["x"] * scale
             py = cy - pile["y"] * scale
@@ -396,12 +409,23 @@ class Controller(vkt.Controller):
                 f'<circle cx="{px:.2f}" cy="{py:.2f}" r="{pile_r:.2f}" '
                 f'fill="none" stroke="#686868" stroke-width="1" stroke-dasharray="6 5"/>'
             )
+            pile_marks.append(
+                f'<circle cx="{px:.2f}" cy="{py:.2f}" r="{cage_r:.2f}" '
+                f'fill="none" stroke="#505050" stroke-width="0.9"/>'
+            )
+            for bar_index in range(display_pile_bars):
+                angle = 2.0 * math.pi * bar_index / display_pile_bars
+                bx = px + cage_r * math.cos(angle)
+                by = py - cage_r * math.sin(angle)
+                pile_marks.append(f'<circle cx="{bx:.2f}" cy="{by:.2f}" r="{dot_r:.2f}" fill="#3d3d3d"/>')
 
         pedestal_grid = cls._pedestal_grid_svg(cx, cy, pedestal_radius - data["cover"], data["pedestal_grid_spacing"], scale)
 
         return f"""
       <text x="{panel_x:.0f}" y="{panel_y:.0f}" font-size="16" font-weight="650" fill="#111">Plan</text>
       <circle cx="{cx:.2f}" cy="{cy:.2f}" r="{outer_r:.2f}" fill="#fbfbfb" stroke="#1f1f1f" stroke-width="3"/>
+      <circle cx="{cx:.2f}" cy="{cy:.2f}" r="{cover_r:.2f}" fill="none" stroke="#dedede" stroke-width="1" stroke-dasharray="4 5"/>
+      <circle cx="{cx:.2f}" cy="{cy:.2f}" r="{pitch_r:.2f}" fill="none" stroke="#8c8c8c" stroke-width="1" stroke-dasharray="10 7"/>
       {''.join(ring_marks)}
       {''.join(bottom_radials)}
       {''.join(top_radials)}
@@ -432,6 +456,122 @@ class Controller(vkt.Controller):
                 f'x2="{cx + x * scale:.2f}" y2="{cy + half * scale:.2f}" stroke="#646464" stroke-width="1.1"/>'
             )
         return "".join(marks)
+
+    @classmethod
+    def _trimmed_radial_svg(
+        cls,
+        cx: float,
+        cy: float,
+        angle: float,
+        r_start: float,
+        r_end: float,
+        data: dict,
+        scale: float,
+        stroke: str,
+        stroke_width: float,
+    ) -> str:
+        parts = []
+        avoid_radius = data["pile_diameter"] / 2.0 + data["cover"] + data["trim_clearance"]
+        for start, end in cls._radial_clear_segments(angle, r_start, r_end, data, avoid_radius):
+            x1 = cx + start * scale * math.cos(angle)
+            y1 = cy - start * scale * math.sin(angle)
+            x2 = cx + end * scale * math.cos(angle)
+            y2 = cy - end * scale * math.sin(angle)
+            parts.append(
+                f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" '
+                f'stroke="{stroke}" stroke-width="{stroke_width:.2f}"/>'
+            )
+        return "".join(parts)
+
+    @classmethod
+    def _trimmed_ring_svg(cls, cx: float, cy: float, radius: float, data: dict, scale: float) -> str:
+        avoid_radius = data["pile_diameter"] / 2.0 + data["cover"] + data["trim_clearance"]
+        segments = cls._ring_clear_angle_segments(radius, data, avoid_radius)
+        parts = []
+        for start_angle, end_angle in segments:
+            if end_angle - start_angle < 0.02:
+                continue
+            parts.append(cls._arc_svg(cx, cy, radius * scale, start_angle, end_angle, "#969696", 1.0))
+        return "".join(parts)
+
+    @staticmethod
+    def _arc_svg(
+        cx: float,
+        cy: float,
+        radius: float,
+        start_angle: float,
+        end_angle: float,
+        stroke: str,
+        stroke_width: float,
+    ) -> str:
+        sweep = end_angle - start_angle
+        if sweep >= 2.0 * math.pi - 0.001:
+            return f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{radius:.2f}" fill="none" stroke="{stroke}" stroke-width="{stroke_width:.2f}"/>'
+
+        x1 = cx + radius * math.cos(start_angle)
+        y1 = cy - radius * math.sin(start_angle)
+        x2 = cx + radius * math.cos(end_angle)
+        y2 = cy - radius * math.sin(end_angle)
+        large_arc = 1 if sweep > math.pi else 0
+        return (
+            f'<path d="M {x1:.2f} {y1:.2f} A {radius:.2f} {radius:.2f} 0 {large_arc} 0 {x2:.2f} {y2:.2f}" '
+            f'fill="none" stroke="{stroke}" stroke-width="{stroke_width:.2f}"/>'
+        )
+
+    @classmethod
+    def _ring_clear_angle_segments(cls, radius: float, data: dict, avoid_radius: float) -> list[tuple[float, float]]:
+        segments = [(0.0, 2.0 * math.pi)]
+        if radius <= 0.0:
+            return []
+
+        for pile in data["pile_centers"]:
+            distance = math.hypot(pile["x"], pile["y"])
+            if distance <= 0.0:
+                continue
+
+            radial_gap = abs(distance - radius)
+            if radial_gap >= avoid_radius:
+                continue
+
+            half_gap = math.asin(min(1.0, avoid_radius / max(radius, distance)))
+            segments = cls._subtract_angle_interval(segments, pile["angle"] - half_gap, pile["angle"] + half_gap)
+
+        return segments
+
+    @classmethod
+    def _subtract_angle_interval(
+        cls,
+        segments: list[tuple[float, float]],
+        cut_start: float,
+        cut_end: float,
+    ) -> list[tuple[float, float]]:
+        cuts = []
+        for start, end in cls._normalize_angle_interval(cut_start, cut_end):
+            cuts.append((start, end))
+
+        remaining = segments
+        for start, end in cuts:
+            next_remaining = []
+            for segment_start, segment_end in remaining:
+                if end <= segment_start or start >= segment_end:
+                    next_remaining.append((segment_start, segment_end))
+                    continue
+                if start > segment_start:
+                    next_remaining.append((segment_start, min(start, segment_end)))
+                if end < segment_end:
+                    next_remaining.append((max(end, segment_start), segment_end))
+            remaining = next_remaining
+
+        return remaining
+
+    @staticmethod
+    def _normalize_angle_interval(start: float, end: float) -> list[tuple[float, float]]:
+        full_turn = 2.0 * math.pi
+        start = start % full_turn
+        end = end % full_turn
+        if start <= end:
+            return [(start, end)]
+        return [(start, full_turn), (0.0, end)]
 
     @classmethod
     def _section_svg(cls, data: dict) -> str:
@@ -466,6 +606,8 @@ class Controller(vkt.Controller):
 
         pile_lines = []
         pile_r = data["pile_diameter"] / 2.0
+        pile_cage_r = max(0.0, pile_r - data["cover"])
+        hoop_count = cls._bar_count(data["pile_depth"], data["pile_hoop_spacing"])
         for x in [-data["pile_ring_radius"], data["pile_ring_radius"]]:
             pile_lines.append(
                 f'<line x1="{sx(x - pile_r):.2f}" y1="{sy(0.0):.2f}" x2="{sx(x - pile_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
@@ -475,6 +617,20 @@ class Controller(vkt.Controller):
                 f'<line x1="{sx(x + pile_r):.2f}" y1="{sy(0.0):.2f}" x2="{sx(x + pile_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
                 f'stroke="#6a6a6a" stroke-width="1" stroke-dasharray="6 5"/>'
             )
+            for side in [-1.0, 1.0]:
+                pile_lines.append(
+                    f'<line x1="{sx(x + side * pile_cage_r):.2f}" y1="{sy(data["cover"]):.2f}" '
+                    f'x2="{sx(x + side * pile_cage_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
+                    f'stroke="#3f3f3f" stroke-width="1.4"/>'
+                )
+            for hoop_index in range(min(hoop_count, 10)):
+                fraction = cls._fraction(hoop_index, min(hoop_count, 10))
+                z = -data["pile_depth"] + fraction * data["pile_depth"]
+                pile_lines.append(
+                    f'<line x1="{sx(x - pile_cage_r):.2f}" y1="{sy(z):.2f}" '
+                    f'x2="{sx(x + pile_cage_r):.2f}" y2="{sy(z):.2f}" '
+                    f'stroke="#8a8a8a" stroke-width="0.9"/>'
+                )
 
         cover = data["cover"]
         outer = foundation_radius - cover
@@ -568,6 +724,56 @@ class Controller(vkt.Controller):
         for offset in Controller._positions_between(-radius, radius, spacing):
             lengths.append(2.0 * math.sqrt(max(0.0, radius * radius - offset * offset)))
         return lengths
+
+    @classmethod
+    def _radial_clear_segments(
+        cls,
+        angle: float,
+        r_start: float,
+        r_end: float,
+        data: dict,
+        avoid_radius: float,
+    ) -> list[tuple[float, float]]:
+        segments = [(r_start, r_end)]
+        pile_ring_radius = data["pile_ring_radius"]
+
+        for pile in data["pile_centers"]:
+            delta = cls._normalize_signed_angle(angle - pile["angle"])
+            distance_to_ray = abs(pile_ring_radius * math.sin(delta))
+            projection = pile_ring_radius * math.cos(delta)
+
+            if distance_to_ray >= avoid_radius or projection <= r_start or projection >= r_end:
+                continue
+
+            half_gap = math.sqrt(max(0.0, avoid_radius * avoid_radius - distance_to_ray * distance_to_ray))
+            segments = cls._subtract_interval(segments, projection - half_gap, projection + half_gap)
+
+        return segments
+
+    @staticmethod
+    def _subtract_interval(segments: list[tuple[float, float]], cut_start: float, cut_end: float) -> list[tuple[float, float]]:
+        remaining = []
+        for start, end in segments:
+            if cut_end <= start or cut_start >= end:
+                remaining.append((start, end))
+                continue
+            if cut_start > start:
+                remaining.append((start, min(cut_start, end)))
+            if cut_end < end:
+                remaining.append((max(cut_end, start), end))
+        return [(start, end) for start, end in remaining if end - start > 1.0]
+
+    @staticmethod
+    def _normalize_signed_angle(angle: float) -> float:
+        while angle <= -math.pi:
+            angle += 2.0 * math.pi
+        while angle > math.pi:
+            angle -= 2.0 * math.pi
+        return angle
+
+    @staticmethod
+    def _fraction(index: int, count: int) -> float:
+        return index / (count - 1) if count > 1 else 0.5
 
     @staticmethod
     def _positions_between(start: float, end: float, spacing: float) -> list[float]:
