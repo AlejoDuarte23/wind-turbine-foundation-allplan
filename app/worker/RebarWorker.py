@@ -90,16 +90,7 @@ def create_element(build_ele, doc) -> CreateElementResult:
         _log("Creating circular foundation, piles, and visual rebar geometry.")
         model_elements = create_model_elements(data)
 
-        _log("Writing model elements to Allplan document.")
-        AllplanBaseElements.CreateElements(
-            doc,
-            AllplanGeo.Matrix3D(),
-            model_elements,
-            [],
-            None,
-        )
-
-        _log("CreateElements finished.")
+        _log_model_elements(model_elements)
 
         result = build_result(data, run_id)
         result_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -107,8 +98,9 @@ def create_element(build_ele, doc) -> CreateElementResult:
 
         done_marker.write_text("done", encoding="utf-8")
         _log("worker_done.txt written.")
+        _log("Returning model elements through CreateElementResult.")
 
-        return CreateElementResult()
+        return CreateElementResult(model_elements)
 
     except BaseException as error:
         _log(f"Worker failed: {error}")
@@ -123,6 +115,28 @@ def create_model_elements(data: dict) -> ModelEleList:
     add_pedestal_rebar_visual(elements, data)
     add_pile_rebar_visual(elements, data)
     return elements
+
+
+def _log_model_elements(model_elements: ModelEleList) -> None:
+    try:
+        _log(f"Prepared {len(model_elements)} model elements.")
+    except Exception as error:
+        _log(f"Could not read model element count: {error}")
+
+    try:
+        type_counts = {}
+        for index, element in enumerate(model_elements):
+            if element is None:
+                raise RuntimeError(f"Invalid model element at index {index}: None")
+            if isinstance(element, list):
+                raise RuntimeError(f"Invalid model element at index {index}: nested Python list")
+
+            element_type = type(element).__name__
+            type_counts[element_type] = type_counts.get(element_type, 0) + 1
+
+        _log(f"Model element types: {type_counts}")
+    except TypeError as error:
+        _log(f"Could not iterate model elements for type validation: {error}")
 
 
 def add_concrete_context(elements: ModelEleList, data: dict) -> None:
