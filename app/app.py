@@ -359,13 +359,13 @@ class Controller(vkt.Controller):
         ring_marks = []
         ring_radii = cls._sample_positions(
             cls._radii_between(pedestal_radius + data["cover"], foundation_radius - data["cover"], data["ring_spacing"]),
-            max_count=9,
+            max_count=14,
         )
         for radius in ring_radii:
             ring_marks.append(cls._trimmed_ring_svg(cx, cy, radius, data, scale))
 
         bottom_radials = []
-        for angle in cls._sample_angles(data["bottom_radial_bar_count"], 16, phase=math.pi / data["bottom_radial_bar_count"]):
+        for angle in cls._sample_angles(data["bottom_radial_bar_count"], 32, phase=math.pi / data["bottom_radial_bar_count"]):
             bottom_radials.append(
                 cls._trimmed_radial_svg(
                     cx,
@@ -376,13 +376,13 @@ class Controller(vkt.Controller):
                     data,
                     scale,
                     "#b7b7b7",
-                    1.0,
+                    1.45,
                 )
             )
 
         top_radials = []
         top_inner = max(data["cover"], pedestal_radius * 0.35)
-        for angle in cls._sample_angles(data["top_radial_bar_count"], 24):
+        for angle in cls._sample_angles(data["top_radial_bar_count"], 44):
             top_radials.append(
                 cls._trimmed_radial_svg(
                     cx,
@@ -393,25 +393,25 @@ class Controller(vkt.Controller):
                     data,
                     scale,
                     "#575757",
-                    1.35,
+                    1.85,
                 )
             )
 
         pile_marks = []
         pile_r = data["pile_diameter"] * scale / 2.0
         cage_r = max(0.0, (data["pile_diameter"] / 2.0 - data["cover"]) * scale)
-        dot_r = max(1.6, data["pile_vertical_diameter"] * scale * 0.55)
-        display_pile_bars = min(data["pile_vertical_count"], 12)
+        dot_r = max(2.7, data["pile_vertical_diameter"] * scale * 1.1)
+        display_pile_bars = min(max(data["pile_vertical_count"], 8), 16)
         for pile in data["pile_centers"]:
             px = cx + pile["x"] * scale
             py = cy - pile["y"] * scale
             pile_marks.append(
                 f'<circle cx="{px:.2f}" cy="{py:.2f}" r="{pile_r:.2f}" '
-                f'fill="none" stroke="#686868" stroke-width="1" stroke-dasharray="6 5"/>'
+                f'fill="none" stroke="#686868" stroke-width="1.2" stroke-dasharray="6 5"/>'
             )
             pile_marks.append(
                 f'<circle cx="{px:.2f}" cy="{py:.2f}" r="{cage_r:.2f}" '
-                f'fill="none" stroke="#505050" stroke-width="0.9"/>'
+                f'fill="none" stroke="#505050" stroke-width="1.25"/>'
             )
             for bar_index in range(display_pile_bars):
                 angle = 2.0 * math.pi * bar_index / display_pile_bars
@@ -420,6 +420,7 @@ class Controller(vkt.Controller):
                 pile_marks.append(f'<circle cx="{bx:.2f}" cy="{by:.2f}" r="{dot_r:.2f}" fill="#3d3d3d"/>')
 
         pedestal_grid = cls._pedestal_grid_svg(cx, cy, pedestal_radius - data["cover"], data["pedestal_grid_spacing"], scale)
+        pedestal_rebar = cls._pedestal_rebar_svg(cx, cy, pedestal_radius, data, scale)
 
         return f"""
       <text x="{panel_x:.0f}" y="{panel_y:.0f}" font-size="16" font-weight="650" fill="#111">Plan</text>
@@ -432,6 +433,7 @@ class Controller(vkt.Controller):
       {''.join(pile_marks)}
       <circle cx="{cx:.2f}" cy="{cy:.2f}" r="{ped_r:.2f}" fill="none" stroke="#1f1f1f" stroke-width="2.4"/>
       {pedestal_grid}
+      {pedestal_rebar}
       <line x1="{cx - outer_r:.2f}" y1="{cy + outer_r + 38.0:.2f}" x2="{cx + outer_r:.2f}" y2="{cy + outer_r + 38.0:.2f}" stroke="#111" stroke-width="1"/>
       <text x="{cx:.2f}" y="{cy + outer_r + 60.0:.2f}" text-anchor="middle" font-size="12" fill="#111">Ø {data["foundation_diameter"]:.0f} mm</text>
 """
@@ -439,22 +441,61 @@ class Controller(vkt.Controller):
     @classmethod
     def _pedestal_grid_svg(cls, cx: float, cy: float, radius: float, spacing: float, scale: float) -> str:
         marks = []
-        values = cls._sample_positions(cls._positions_between(-radius, radius, spacing), max_count=5)
+        values = cls._sample_positions(cls._positions_between(-radius, radius, spacing), max_count=11)
         for y in values:
             half = math.sqrt(max(0.0, radius * radius - y * y))
             marks.append(
                 f'<line x1="{cx - half * scale:.2f}" y1="{cy - y * scale:.2f}" '
-                f'x2="{cx + half * scale:.2f}" y2="{cy - y * scale:.2f}" stroke="#3d3d3d" stroke-width="1.3"/>'
+                f'x2="{cx + half * scale:.2f}" y2="{cy - y * scale:.2f}" stroke="#3d3d3d" stroke-width="1.65"/>'
             )
 
         reduced_radius = max(0.0, radius * 0.86)
-        values = cls._sample_positions(cls._positions_between(-reduced_radius, reduced_radius, spacing), max_count=5)
+        values = cls._sample_positions(cls._positions_between(-reduced_radius, reduced_radius, spacing), max_count=11)
         for x in values:
             half = math.sqrt(max(0.0, reduced_radius * reduced_radius - x * x))
             marks.append(
                 f'<line x1="{cx + x * scale:.2f}" y1="{cy - half * scale:.2f}" '
-                f'x2="{cx + x * scale:.2f}" y2="{cy + half * scale:.2f}" stroke="#646464" stroke-width="1.1"/>'
+                f'x2="{cx + x * scale:.2f}" y2="{cy + half * scale:.2f}" stroke="#646464" stroke-width="1.35"/>'
             )
+        return "".join(marks)
+
+    @classmethod
+    def _pedestal_rebar_svg(cls, cx: float, cy: float, pedestal_radius: float, data: dict, scale: float) -> str:
+        marks = []
+        clear_radius = max(0.0, pedestal_radius - data["cover"])
+        inner_radius = max(clear_radius * 0.38, data["cover"])
+        cage_radius = clear_radius * 0.72
+        dot_radius = max(3.0, data["pedestal_grid_bar_diameter"] * scale * 1.8)
+        bar_count = min(72, max(36, int(2.0 * math.pi * cage_radius / max(data["pedestal_grid_spacing"], 1.0))))
+
+        for radius, stroke, width in [
+            (inner_radius, "#1f1f1f", 1.4),
+            (cage_radius, "#2f2f2f", 1.2),
+            (clear_radius, "#4a4a4a", 1.0),
+        ]:
+            marks.append(
+                f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{radius * scale:.2f}" '
+                f'fill="none" stroke="{stroke}" stroke-width="{width:.2f}"/>'
+            )
+
+        for angle in cls._sample_angles(bar_count, bar_count):
+            bx = cx + cage_radius * scale * math.cos(angle)
+            by = cy - cage_radius * scale * math.sin(angle)
+            marks.append(
+                f'<circle cx="{bx:.2f}" cy="{by:.2f}" r="{dot_radius:.2f}" '
+                f'fill="#fbfbfb" stroke="#1f1f1f" stroke-width="1.35"/>'
+            )
+
+        for angle in cls._sample_angles(data["top_radial_bar_count"], 36):
+            x1 = cx + inner_radius * scale * math.cos(angle)
+            y1 = cy - inner_radius * scale * math.sin(angle)
+            x2 = cx + clear_radius * scale * math.cos(angle)
+            y2 = cy - clear_radius * scale * math.sin(angle)
+            marks.append(
+                f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" '
+                f'stroke="#2f2f2f" stroke-width="1.2"/>'
+            )
+
         return "".join(marks)
 
     @classmethod
@@ -491,7 +532,7 @@ class Controller(vkt.Controller):
         for start_angle, end_angle in segments:
             if end_angle - start_angle < 0.02:
                 continue
-            parts.append(cls._arc_svg(cx, cy, radius * scale, start_angle, end_angle, "#969696", 1.0))
+            parts.append(cls._arc_svg(cx, cy, radius * scale, start_angle, end_angle, "#969696", 1.35))
         return "".join(parts)
 
     @staticmethod
@@ -637,22 +678,39 @@ class Controller(vkt.Controller):
         top_inner = max(cover, pedestal_radius * 0.35)
         bottom_y = sy(cover)
         bottom_rebar = (
-            f'<line x1="{sx(-outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(0.0):.2f}" y2="{bottom_y:.2f}" stroke="#949494" stroke-width="2"/>'
-            f'<line x1="{sx(0.0):.2f}" y1="{bottom_y:.2f}" x2="{sx(outer):.2f}" y2="{bottom_y:.2f}" stroke="#949494" stroke-width="2"/>'
+            f'<line x1="{sx(-outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(0.0):.2f}" y2="{bottom_y:.2f}" stroke="#949494" stroke-width="2.6"/>'
+            f'<line x1="{sx(0.0):.2f}" y1="{bottom_y:.2f}" x2="{sx(outer):.2f}" y2="{bottom_y:.2f}" stroke="#949494" stroke-width="2.6"/>'
         )
         top_left = cls._section_top_polyline(data, -outer, -top_inner, scale, cx, base_y)
         top_right = cls._section_top_polyline(data, top_inner, outer, scale, cx, base_y)
         top_rebar = (
-            f'<polyline points="{top_left}" fill="none" stroke="#3f3f3f" stroke-width="2"/>'
-            f'<polyline points="{top_right}" fill="none" stroke="#3f3f3f" stroke-width="2"/>'
+            f'<polyline points="{top_left}" fill="none" stroke="#3f3f3f" stroke-width="2.6"/>'
+            f'<polyline points="{top_right}" fill="none" stroke="#3f3f3f" stroke-width="2.6"/>'
         )
 
+        section_rebar_marks = []
+        section_radii = cls._sample_positions(cls._radii_between(top_inner, outer, data["ring_spacing"]), max_count=10)
+        for radius in section_radii:
+            top_z = cls._foundation_top_z(data, radius) - cover
+            for side in [-1.0, 1.0]:
+                x = sx(side * radius)
+                section_rebar_marks.append(
+                    f'<line x1="{x:.2f}" y1="{sy(top_z):.2f}" x2="{x:.2f}" y2="{bottom_y:.2f}" '
+                    f'stroke="#9a9a9a" stroke-width="0.9"/>'
+                )
+                section_rebar_marks.append(
+                    f'<circle cx="{x:.2f}" cy="{sy(top_z):.2f}" r="4.2" fill="#4d4d4d"/>'
+                )
+                section_rebar_marks.append(
+                    f'<circle cx="{x:.2f}" cy="{bottom_y:.2f}" r="4.2" fill="#4d4d4d"/>'
+                )
+
         ring_dots = []
-        ring_radii = cls._sample_positions(cls._radii_between(pedestal_radius + cover, outer, data["ring_spacing"]), max_count=5)
+        ring_radii = cls._sample_positions(cls._radii_between(pedestal_radius + cover, outer, data["ring_spacing"]), max_count=10)
         for radius in ring_radii:
             for side in [-1.0, 1.0]:
                 ring_dots.append(
-                    f'<circle cx="{sx(side * radius):.2f}" cy="{bottom_y:.2f}" r="3.2" fill="#707070"/>'
+                    f'<circle cx="{sx(side * radius):.2f}" cy="{bottom_y:.2f}" r="4.5" fill="#707070"/>'
                 )
 
         grid_z = center_h + cover
@@ -666,6 +724,7 @@ class Controller(vkt.Controller):
       <text x="{panel_x:.0f}" y="{panel_y:.0f}" font-size="16" font-weight="650" fill="#111">Section</text>
       <polygon points="{concrete_path}" fill="#fbfbfb" stroke="#1f1f1f" stroke-width="3"/>
       {''.join(pile_lines)}
+      {''.join(section_rebar_marks)}
       {bottom_rebar}
       {top_rebar}
       {''.join(ring_dots)}
