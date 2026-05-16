@@ -39,6 +39,8 @@ class Parametrization(vkt.Parametrization):
     reinforcement.ring_spacing = vkt.NumberField("Circular base bar spacing", default=550.0, min=150.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_bar_diameter = vkt.NumberField("Pedestal grid bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_spacing = vkt.NumberField("Pedestal grid spacing", default=350.0, min=100.0, suffix="mm", flex=50)
+    reinforcement.pedestal_tie_diameter = vkt.NumberField("Pedestal tie diameter", default=12.0, min=6.0, suffix="mm", flex=50)
+    reinforcement.pedestal_tie_spacing = vkt.NumberField("Pedestal tie spacing", default=250.0, min=75.0, suffix="mm", flex=50)
     reinforcement.pile_vertical_diameter = vkt.NumberField("Pile vertical bar diameter", default=16.0, min=8.0, suffix="mm", flex=50)
     reinforcement.pile_vertical_count = vkt.NumberField("Vertical bars per pile", default=8, min=4, max=24, flex=50)
     reinforcement.pile_hoop_diameter = vkt.NumberField("Pile hoop diameter", default=10.0, min=6.0, suffix="mm", flex=50)
@@ -62,6 +64,12 @@ class Controller(vkt.Controller):
         data = self._worker_input(params)
         html = self._build_rebar_html(data)
         return vkt.WebResult(html=html)
+
+    @vkt.GeometryView("3D visual model", duration_guess=1, x_axis_to_right=True)
+    def visual_model(self, params, **kwargs):
+        data = self._worker_input(params)
+        geometry = self._geometry_model(data)
+        return vkt.GeometryResult(geometry=geometry)
 
     @vkt.TableView("Visual geometry schedule")
     def bar_schedule(self, params, **kwargs):
@@ -138,6 +146,8 @@ class Controller(vkt.Controller):
             "ring_spacing": float(params.reinforcement.ring_spacing),
             "pedestal_grid_bar_diameter": float(params.reinforcement.pedestal_grid_bar_diameter),
             "pedestal_grid_spacing": float(params.reinforcement.pedestal_grid_spacing),
+            "pedestal_tie_diameter": float(params.reinforcement.pedestal_tie_diameter),
+            "pedestal_tie_spacing": float(params.reinforcement.pedestal_tie_spacing),
             "pile_vertical_diameter": float(params.reinforcement.pile_vertical_diameter),
             "pile_vertical_count": int(params.reinforcement.pile_vertical_count),
             "pile_hoop_diameter": float(params.reinforcement.pile_hoop_diameter),
@@ -176,6 +186,8 @@ class Controller(vkt.Controller):
         pedestal_clear_radius = max(0.0, pedestal_radius - cover)
         pedestal_grid_x_lengths = cls._grid_bar_lengths(pedestal_clear_radius, data["pedestal_grid_spacing"])
         pedestal_grid_y_lengths = cls._grid_bar_lengths(pedestal_clear_radius, data["pedestal_grid_spacing"])
+        pedestal_tie_count = cls._bar_count(data["pedestal_height"] - 2.0 * cover, data["pedestal_tie_spacing"])
+        pedestal_tie_length = 2.0 * math.pi * pedestal_clear_radius
 
         pile_hoop_count = cls._bar_count(data["pile_depth"], data["pile_hoop_spacing"])
         pile_hoop_radius = max(0.0, data["pile_diameter"] / 2.0 - cover)
@@ -229,6 +241,15 @@ class Controller(vkt.Controller):
                 2.0 * sum(pedestal_grid_y_lengths),
             ],
             [
+                "P3",
+                "Pedestal circular ties",
+                data["pedestal_tie_diameter"],
+                f"@ {data['pedestal_tie_spacing']:.0f} mm",
+                pedestal_tie_count,
+                pedestal_tie_length,
+                pedestal_tie_count * pedestal_tie_length,
+            ],
+            [
                 "C1",
                 "Pile verticals",
                 data["pile_vertical_diameter"],
@@ -267,7 +288,7 @@ class Controller(vkt.Controller):
         total_length = sum(row[-1] for row in schedule)
 
         plan = cls._plan_svg(data)
-        elevation = cls._section_svg(data)
+        elevation = cls._pile_projection_svg(data)
 
         return f"""
 <!doctype html>
@@ -332,11 +353,11 @@ class Controller(vkt.Controller):
         <span>Total visual length {total_length:.1f} m</span>
       </div>
     </div>
-    <svg viewBox="0 0 1120 720" role="img" aria-label="Plan and section rebar sketch">
+    <svg viewBox="0 0 1120 720" role="img" aria-label="Plan and pile projection sketch">
       {plan}
       {elevation}
     </svg>
-    <div class="caption">Grayscale sketch is intentionally simplified. Allplan export uses visual 3D entities for concrete, piles, and rebar.</div>
+    <div class="caption">Grayscale sketch keeps the 2D view readable. The 3D visual model and Allplan export carry the heavier reinforcement geometry.</div>
   </div>
 </body>
 </html>
@@ -353,6 +374,7 @@ class Controller(vkt.Controller):
         outer_r = foundation_radius * scale
         ped_r = pedestal_radius * scale
         cover_r = max(0.0, (foundation_radius - data["cover"]) * scale)
+        core_r = max(15.0, ped_r * 0.34)
 
         pitch_r = data["pile_ring_radius"] * scale
         ring_marks = []
@@ -433,6 +455,7 @@ class Controller(vkt.Controller):
       <circle cx="{cx:.2f}" cy="{cy:.2f}" r="{ped_r:.2f}" fill="none" stroke="#1f1f1f" stroke-width="2.4"/>
       {pedestal_grid}
       {pedestal_rebar}
+      <circle cx="{cx:.2f}" cy="{cy:.2f}" r="{core_r:.2f}" fill="#ffffff" stroke="#1f1f1f" stroke-width="2.1"/>
       <line x1="{cx - outer_r:.2f}" y1="{cy + outer_r + 38.0:.2f}" x2="{cx + outer_r:.2f}" y2="{cy + outer_r + 38.0:.2f}" stroke="#111" stroke-width="1"/>
       <text x="{cx:.2f}" y="{cy + outer_r + 60.0:.2f}" text-anchor="middle" font-size="12" fill="#111">Ø {data["foundation_diameter"]:.0f} mm</text>
 """
@@ -607,6 +630,284 @@ class Controller(vkt.Controller):
         return [(start, full_turn), (0.0, end)]
 
     @classmethod
+    def _pile_projection_svg(cls, data: dict) -> str:
+        panel_x, panel_y = 610.0, 72.0
+        pile_r = data["pile_diameter"] / 2.0
+        pile_cage_r = max(0.0, pile_r - data["cover"])
+        half_width = data["pile_ring_radius"] + pile_r
+        scale = min(430.0 / max(1.0, 2.0 * half_width), 455.0 / max(1.0, data["pile_depth"]))
+        cx = panel_x + 250.0
+        top_y = panel_y + 115.0
+
+        def sx(x: float) -> float:
+            return cx + x * scale
+
+        def sy(z: float) -> float:
+            return top_y - z * scale
+
+        projected_pile_lines = []
+        projected_x_values = []
+        for pile in sorted(data["pile_centers"], key=lambda item: item["x"]):
+            if any(abs(pile["x"] - value) < data["pile_diameter"] * 0.35 for value in projected_x_values):
+                continue
+            projected_x_values.append(pile["x"])
+            stroke = "#c9c9c9"
+            width = 0.9
+            dash = ' stroke-dasharray="7 7"'
+            if abs(abs(pile["x"]) - data["pile_ring_radius"]) < data["pile_diameter"] * 0.15:
+                stroke = "#7a7a7a"
+                width = 1.2
+                dash = ' stroke-dasharray="6 5"'
+            projected_pile_lines.append(
+                f'<line x1="{sx(pile["x"] - pile_r):.2f}" y1="{sy(0.0):.2f}" '
+                f'x2="{sx(pile["x"] - pile_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
+                f'stroke="{stroke}" stroke-width="{width:.1f}"{dash}/>'
+            )
+            projected_pile_lines.append(
+                f'<line x1="{sx(pile["x"] + pile_r):.2f}" y1="{sy(0.0):.2f}" '
+                f'x2="{sx(pile["x"] + pile_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
+                f'stroke="{stroke}" stroke-width="{width:.1f}"{dash}/>'
+            )
+
+        detailed_piles = []
+        hoop_count = cls._bar_count(data["pile_depth"], data["pile_hoop_spacing"])
+        hoop_positions = [
+            -data["pile_depth"] + cls._fraction(index, min(hoop_count, 13)) * data["pile_depth"]
+            for index in range(min(hoop_count, 13))
+        ]
+        for x in [-data["pile_ring_radius"], data["pile_ring_radius"]]:
+            detailed_piles.append(
+                f'<rect x="{sx(x - pile_r):.2f}" y="{sy(0.0):.2f}" '
+                f'width="{2.0 * pile_r * scale:.2f}" height="{data["pile_depth"] * scale:.2f}" '
+                f'fill="none" stroke="#4f4f4f" stroke-width="1.2"/>'
+            )
+            for side in [-1.0, 1.0]:
+                cage_x = x + side * pile_cage_r
+                detailed_piles.append(
+                    f'<line x1="{sx(cage_x):.2f}" y1="{sy(0.0):.2f}" '
+                    f'x2="{sx(cage_x):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
+                    f'stroke="#2f2f2f" stroke-width="1.8"/>'
+                )
+            for z in hoop_positions:
+                detailed_piles.append(
+                    f'<line x1="{sx(x - pile_cage_r):.2f}" y1="{sy(z):.2f}" '
+                    f'x2="{sx(x + pile_cage_r):.2f}" y2="{sy(z):.2f}" '
+                    f'stroke="#747474" stroke-width="1.0"/>'
+                )
+
+        return f"""
+      <text x="{panel_x:.0f}" y="{panel_y:.0f}" font-size="16" font-weight="650" fill="#111">Pile projection</text>
+      <line x1="{sx(-half_width):.2f}" y1="{sy(0.0):.2f}" x2="{sx(half_width):.2f}" y2="{sy(0.0):.2f}" stroke="#d8d8d8" stroke-width="1"/>
+      {''.join(projected_pile_lines)}
+      {''.join(detailed_piles)}
+      <line x1="{sx(0.0):.2f}" y1="{sy(-data["pile_depth"]):.2f}" x2="{sx(0.0):.2f}" y2="{sy(0.0):.2f}" stroke="#9a9a9a" stroke-width="1" stroke-dasharray="8 6"/>
+      <text x="{sx(0.0) + 12.0:.2f}" y="{sy(0.0) + 18.0:.2f}" font-size="12" fill="#333">axis</text>
+"""
+
+    @classmethod
+    def _geometry_model(cls, data: dict):
+        objects = []
+        steel = vkt.Material(color=(32, 32, 32), roughness=0.8, metalness=0.2)
+        secondary_steel = vkt.Material(color=(82, 82, 82), roughness=0.8, metalness=0.1)
+        light_steel = vkt.Material(color=(135, 135, 135), roughness=0.9, metalness=0.0)
+
+        foundation_radius = data["foundation_diameter"] / 2.0
+        pedestal_radius = data["pedestal_diameter"] / 2.0
+        cover = data["cover"]
+        outer_radius = max(0.0, foundation_radius - cover)
+        center_h = data["foundation_center_thickness"]
+        pedestal_top_z = center_h + data["pedestal_height"]
+
+        outline_size = 55.0
+        cls._add_geometry_ring(objects, foundation_radius, 0.0, outline_size, light_steel, 48, "foundation-bottom-outline")
+        cls._add_geometry_ring(objects, foundation_radius, data["foundation_edge_thickness"], outline_size, light_steel, 48, "foundation-edge-outline")
+        cls._add_geometry_ring(objects, pedestal_radius, center_h, outline_size, light_steel, 48, "pedestal-base-outline")
+        cls._add_geometry_ring(objects, pedestal_radius, pedestal_top_z, outline_size, light_steel, 48, "pedestal-top-outline")
+
+        ring_size = cls._visual_bar_size(data["ring_bar_diameter"])
+        ring_radii = cls._sample_positions(
+            cls._radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]),
+            max_count=9,
+        )
+        for index, radius in enumerate(ring_radii):
+            z = cover
+            cls._add_geometry_ring(objects, radius, z, ring_size, secondary_steel, 36, f"base-ring-{index}")
+
+        top_bar_size = cls._visual_bar_size(data["top_radial_bar_diameter"])
+        top_inner = max(cover, pedestal_radius * 0.35)
+        for index, angle in enumerate(cls._sample_angles(data["top_radial_bar_count"], 36)):
+            start = (
+                top_inner * math.cos(angle),
+                top_inner * math.sin(angle),
+                cls._foundation_top_z(data, top_inner) - cover,
+            )
+            end = (
+                outer_radius * math.cos(angle),
+                outer_radius * math.sin(angle),
+                cls._foundation_top_z(data, outer_radius) - cover,
+            )
+            cls._add_geometry_bar(objects, start, end, top_bar_size, steel, f"top-radial-{index}")
+
+        bottom_bar_size = cls._visual_bar_size(data["bottom_radial_bar_diameter"])
+        for index, angle in enumerate(cls._sample_angles(data["bottom_radial_bar_count"], 24, phase=math.pi / data["bottom_radial_bar_count"])):
+            start = (cover * math.cos(angle), cover * math.sin(angle), cover)
+            end = (outer_radius * math.cos(angle), outer_radius * math.sin(angle), cover)
+            cls._add_geometry_bar(objects, start, end, bottom_bar_size, secondary_steel, f"bottom-radial-{index}")
+
+        cls._add_pedestal_geometry(objects, data, steel, secondary_steel)
+        cls._add_pile_geometry(objects, data, secondary_steel, light_steel)
+
+        return vkt.Group(objects)
+
+    @classmethod
+    def _add_pedestal_geometry(cls, objects: list, data: dict, steel, secondary_steel) -> None:
+        pedestal_radius = data["pedestal_diameter"] / 2.0
+        clear_radius = max(0.0, pedestal_radius - data["cover"])
+        z_bottom = data["foundation_center_thickness"] + data["cover"]
+        z_top = data["foundation_center_thickness"] + data["pedestal_height"] - data["cover"]
+        frame_size = cls._visual_bar_size(data["pedestal_grid_bar_diameter"], multiplier=4.0, minimum=70.0)
+        tie_size = cls._visual_bar_size(data["pedestal_tie_diameter"], multiplier=4.0, minimum=55.0)
+
+        offsets = cls._sample_positions(
+            cls._positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"]),
+            max_count=13,
+        )
+        for index, x in enumerate(offsets):
+            y_half = math.sqrt(max(0.0, clear_radius * clear_radius - x * x))
+            cls._add_vertical_rect_y(objects, x, -y_half, y_half, z_bottom, z_top, frame_size, steel, f"ped-y-frame-{index}")
+
+        for index, y in enumerate(offsets):
+            x_half = math.sqrt(max(0.0, clear_radius * clear_radius - y * y))
+            cls._add_vertical_rect_x(objects, -x_half, x_half, y, z_bottom, z_top, frame_size, steel, f"ped-x-frame-{index}")
+
+        tie_positions = cls._sample_positions(
+            cls._positions_between(z_bottom, z_top, data["pedestal_tie_spacing"]),
+            max_count=10,
+        )
+        for index, z in enumerate(tie_positions):
+            cls._add_geometry_ring(objects, clear_radius, z, tie_size, secondary_steel, 36, f"pedestal-tie-{index}")
+
+    @classmethod
+    def _add_pile_geometry(cls, objects: list, data: dict, steel, light_steel) -> None:
+        pile_cage_radius = max(0.0, data["pile_diameter"] / 2.0 - data["cover"])
+        if pile_cage_radius <= 0.0:
+            return
+
+        vertical_size = cls._visual_bar_size(data["pile_vertical_diameter"], multiplier=3.5, minimum=50.0)
+        hoop_size = cls._visual_bar_size(data["pile_hoop_diameter"], multiplier=3.5, minimum=45.0)
+        vertical_count = min(max(data["pile_vertical_count"], 4), 8)
+        hoop_positions = cls._sample_positions(
+            cls._positions_between(-data["pile_depth"], 0.0, data["pile_hoop_spacing"]),
+            max_count=4,
+        )
+
+        for pile_index, pile in enumerate(data["pile_centers"]):
+            cx = pile["x"]
+            cy = pile["y"]
+            z_top = cls._foundation_top_z(data, math.hypot(cx, cy)) - data["cover"]
+            for bar_index in range(vertical_count):
+                angle = 2.0 * math.pi * bar_index / vertical_count
+                x = cx + pile_cage_radius * math.cos(angle)
+                y = cy + pile_cage_radius * math.sin(angle)
+                cls._add_geometry_bar(
+                    objects,
+                    (x, y, -data["pile_depth"]),
+                    (x, y, z_top),
+                    vertical_size,
+                    steel,
+                    f"pile-{pile_index}-vertical-{bar_index}",
+                )
+            for hoop_index, z in enumerate(hoop_positions):
+                cls._add_geometry_ring(
+                    objects,
+                    pile_cage_radius,
+                    z,
+                    hoop_size,
+                    light_steel,
+                    16,
+                    f"pile-{pile_index}-hoop-{hoop_index}",
+                    center=(cx, cy),
+                )
+
+    @staticmethod
+    def _visual_bar_size(diameter: float, multiplier: float = 3.2, minimum: float = 50.0, maximum: float = 120.0) -> float:
+        return min(maximum, max(minimum, diameter * multiplier))
+
+    @classmethod
+    def _add_vertical_rect_y(
+        cls,
+        objects: list,
+        x: float,
+        y_min: float,
+        y_max: float,
+        z_bottom: float,
+        z_top: float,
+        size: float,
+        material,
+        identifier: str,
+    ) -> None:
+        cls._add_geometry_bar(objects, (x, y_min, z_bottom), (x, y_max, z_bottom), size, material, f"{identifier}-bottom")
+        cls._add_geometry_bar(objects, (x, y_min, z_top), (x, y_max, z_top), size, material, f"{identifier}-top")
+        cls._add_geometry_bar(objects, (x, y_min, z_bottom), (x, y_min, z_top), size, material, f"{identifier}-side-a")
+        cls._add_geometry_bar(objects, (x, y_max, z_bottom), (x, y_max, z_top), size, material, f"{identifier}-side-b")
+
+    @classmethod
+    def _add_vertical_rect_x(
+        cls,
+        objects: list,
+        x_min: float,
+        x_max: float,
+        y: float,
+        z_bottom: float,
+        z_top: float,
+        size: float,
+        material,
+        identifier: str,
+    ) -> None:
+        cls._add_geometry_bar(objects, (x_min, y, z_bottom), (x_max, y, z_bottom), size, material, f"{identifier}-bottom")
+        cls._add_geometry_bar(objects, (x_min, y, z_top), (x_max, y, z_top), size, material, f"{identifier}-top")
+        cls._add_geometry_bar(objects, (x_min, y, z_bottom), (x_min, y, z_top), size, material, f"{identifier}-side-a")
+        cls._add_geometry_bar(objects, (x_max, y, z_bottom), (x_max, y, z_top), size, material, f"{identifier}-side-b")
+
+    @classmethod
+    def _add_geometry_ring(
+        cls,
+        objects: list,
+        radius: float,
+        z: float,
+        size: float,
+        material,
+        segments: int,
+        identifier: str,
+        center: tuple[float, float] = (0.0, 0.0),
+    ) -> None:
+        if radius <= 0.0:
+            return
+
+        cx, cy = center
+        for index in range(segments):
+            start_angle = 2.0 * math.pi * index / segments
+            end_angle = 2.0 * math.pi * (index + 1) / segments
+            start = (cx + radius * math.cos(start_angle), cy + radius * math.sin(start_angle), z)
+            end = (cx + radius * math.cos(end_angle), cy + radius * math.sin(end_angle), z)
+            cls._add_geometry_bar(objects, start, end, size, material, f"{identifier}-{index}")
+
+    @staticmethod
+    def _add_geometry_bar(
+        objects: list,
+        start: tuple[float, float, float],
+        end: tuple[float, float, float],
+        size: float,
+        material,
+        identifier: str,
+    ) -> None:
+        if math.dist(start, end) < 1.0:
+            return
+
+        line = vkt.Line(vkt.Point(start[0], start[1], start[2]), vkt.Point(end[0], end[1], end[2]))
+        objects.append(vkt.RectangularExtrusion(size, size, line, material=material, identifier=identifier))
+
+    @classmethod
     def _section_svg(cls, data: dict) -> str:
         panel_x, panel_y = 610.0, 72.0
         foundation_radius = data["foundation_diameter"] / 2.0
@@ -736,6 +1037,16 @@ class Controller(vkt.Controller):
             f'width="{2.0 * grid_half * scale:.2f}" height="{(grid_top_z - grid_bottom_z) * scale:.2f}" '
             f'fill="none" stroke="#2f2f2f" stroke-width="1.7"/>'
         )
+        tie_positions = cls._sample_positions(
+            cls._positions_between(grid_bottom_z, grid_top_z, data["pedestal_tie_spacing"]),
+            max_count=12,
+        )
+        for z in tie_positions:
+            pedestal_section_rebar.append(
+                f'<line x1="{sx(-grid_half):.2f}" y1="{sy(z):.2f}" '
+                f'x2="{sx(grid_half):.2f}" y2="{sy(z):.2f}" '
+                f'stroke="#5f5f5f" stroke-width="1.1" stroke-dasharray="7 4"/>'
+            )
         section_bar_positions = cls._sample_positions(
             cls._positions_between(-grid_half, grid_half, data["pedestal_grid_spacing"]),
             max_count=11,

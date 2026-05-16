@@ -218,6 +218,7 @@ def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
     pedestal_radius = data["pedestal_diameter"] / 2.0
     clear_radius = max(0.0, pedestal_radius - data["cover"])
     bar_radius = data["pedestal_grid_bar_diameter"] / 2.0
+    tie_radius = data["pedestal_tie_diameter"] / 2.0
     z_bottom = data["foundation_center_thickness"] + data["cover"]
     z_top = data["foundation_center_thickness"] + data["pedestal_height"] - data["cover"]
 
@@ -228,6 +229,9 @@ def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
     for y in positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"]):
         x_half = math.sqrt(max(0.0, clear_radius * clear_radius - y * y))
         append_vertical_rect_frame_x(elements, bar_radius, -x_half, x_half, y, z_bottom, z_top)
+
+    for z in positions_between(z_bottom, z_top, data["pedestal_tie_spacing"]):
+        append_ring(elements, tie_radius, 0.0, 0.0, clear_radius, z, segments=72)
 
 
 def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
@@ -539,6 +543,13 @@ def build_result(data: dict, run_id: str) -> dict:
     pile_hoop_count = len(positions_between(-data["pile_depth"], 0.0, data["pile_hoop_spacing"]))
     pedestal_clear_radius = max(0.0, pedestal_radius - cover)
     pedestal_frame_count = len(positions_between(-pedestal_clear_radius, pedestal_clear_radius, data["pedestal_grid_spacing"]))
+    pedestal_tie_count = len(
+        positions_between(
+            data["foundation_center_thickness"] + cover,
+            data["foundation_center_thickness"] + data["pedestal_height"] - cover,
+            data["pedestal_tie_spacing"],
+        )
+    )
 
     return {
         "run_id": run_id,
@@ -553,6 +564,7 @@ def build_result(data: dict, run_id: str) -> dict:
             "top_radial_bars_before_trimming": data["top_radial_bar_count"],
             "bottom_radial_bars_before_trimming": data["bottom_radial_bar_count"],
             "pedestal_rectangular_frames": 2 * pedestal_frame_count,
+            "pedestal_circular_ties": pedestal_tie_count,
             "pile_visual_vertical_bars": len(data["pile_centers"]) * data["pile_vertical_count"],
             "pile_visual_hoops": len(data["pile_centers"]) * pile_hoop_count,
         },
