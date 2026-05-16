@@ -376,13 +376,34 @@ def append_cylinder_between(elements: ModelEleList, radius: float, start: tuple[
     if length == 0.0:
         return
 
-    axis = AllplanGeo.Vector3D(dx / length, dy / length, dz / length)
-    reference = AllplanGeo.Vector3D(0.0, 0.0, 1.0)
-    if abs(axis.Z) > 0.99:
-        reference = AllplanGeo.Vector3D(1.0, 0.0, 0.0)
+    axis_values = (dx / length, dy / length, dz / length)
+    axis = AllplanGeo.Vector3D(*axis_values)
+    reference = perpendicular_reference_vector(axis_values)
 
     placement = AllplanGeo.AxisPlacement3D(point(start), reference, axis)
     elements.append_geometry_3d(AllplanGeo.BRep3D.CreateCylinder(placement, radius, length))
+
+
+def perpendicular_reference_vector(axis: tuple[float, float, float]):
+    candidate = (0.0, 0.0, 1.0)
+    if abs(axis[2]) > 0.9:
+        candidate = (1.0, 0.0, 0.0)
+
+    ref = cross(candidate, axis)
+    length = math.sqrt(ref[0] * ref[0] + ref[1] * ref[1] + ref[2] * ref[2])
+    if length == 0.0:
+        ref = cross((0.0, 1.0, 0.0), axis)
+        length = math.sqrt(ref[0] * ref[0] + ref[1] * ref[1] + ref[2] * ref[2])
+
+    return AllplanGeo.Vector3D(ref[0] / length, ref[1] / length, ref[2] / length)
+
+
+def cross(left: tuple[float, float, float], right: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
 
 
 def radial_clear_segments(angle: float, r_start: float, r_end: float, data: dict, avoid_radius: float) -> list[tuple[float, float]]:
