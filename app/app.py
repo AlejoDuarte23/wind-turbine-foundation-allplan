@@ -26,7 +26,7 @@ class Parametrization(vkt.Parametrization):
     geometry.pile_count = vkt.NumberField("Pile count", default=12, min=3, max=32, flex=50)
     geometry.pile_ring_radius = vkt.NumberField("Pile ring radius", default=5200.0, min=1000.0, suffix="mm", flex=50)
     geometry.pile_diameter = vkt.NumberField("Pile diameter", default=700.0, min=250.0, suffix="mm", flex=50)
-    geometry.pile_depth = vkt.NumberField("Pile depth", default=6000.0, min=1000.0, suffix="mm", flex=50)
+    geometry.pile_depth = vkt.NumberField("Pile depth", default=12000.0, min=1000.0, suffix="mm", flex=50)
 
     reinforcement = vkt.Section("Reinforcement", initially_expanded=True)
     reinforcement.cover = vkt.NumberField("Concrete cover", default=75.0, min=25.0, max=200.0, suffix="mm", flex=50)
@@ -297,6 +297,7 @@ class Controller(vkt.Controller):
         total_length = sum(row[-1] for row in schedule)
 
         plan = cls._plan_svg(data)
+        section = cls._section_svg(data)
         return f"""
 <!doctype html>
 <html>
@@ -360,10 +361,11 @@ class Controller(vkt.Controller):
         <span>Total visual length {total_length:.1f} m</span>
       </div>
     </div>
-    <svg viewBox="0 0 590 660" role="img" aria-label="Plan rebar sketch">
+    <svg viewBox="0 0 1120 720" role="img" aria-label="Plan and section rebar sketch">
       {plan}
+      {section}
     </svg>
-    <div class="caption">Plan-only grayscale rebar sketch. The concrete geometry is shown in the 3D view, and the Allplan export carries the full visual reinforcement model.</div>
+    <div class="caption">Grayscale sketch uses deliberately spaced rebar markers for readability. The concrete geometry is shown in the 3D view, and the Allplan export carries the full visual reinforcement model.</div>
   </div>
 </body>
 </html>
@@ -774,10 +776,12 @@ class Controller(vkt.Controller):
 
     @staticmethod
     def _circle_profile(radius: float, segments: int) -> list:
-        return [
+        points = [
             vkt.Point(radius * math.cos(2.0 * math.pi * index / segments), radius * math.sin(2.0 * math.pi * index / segments), 0.0)
             for index in range(segments)
         ]
+        points.append(vkt.Point(radius, 0.0, 0.0))
+        return points
 
     @classmethod
     def _add_pedestal_geometry(cls, objects: list, data: dict, steel, secondary_steel) -> None:
@@ -992,7 +996,7 @@ class Controller(vkt.Controller):
             )
             for side in [-1.0, 1.0]:
                 cage_x = x + side * pile_cage_r
-                cage_top_z = cls._foundation_top_z(data, min(foundation_radius, abs(cage_x))) - data["cover"]
+                cage_top_z = cls._pile_rebar_extension(data, abs(x))
                 pile_lines.append(
                     f'<line x1="{sx(cage_x):.2f}" y1="{sy(cage_top_z):.2f}" '
                     f'x2="{sx(cage_x):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
@@ -1023,35 +1027,35 @@ class Controller(vkt.Controller):
         )
 
         section_rebar_marks = []
-        section_radii = cls._sample_positions(cls._radii_between(top_inner, outer, data["ring_spacing"]), max_count=10)
+        section_radii = cls._sample_positions(cls._radii_between(top_inner, outer, data["ring_spacing"]), max_count=8)
         for radius in section_radii:
             top_z = cls._foundation_top_z(data, radius) - cover
             for side in [-1.0, 1.0]:
                 x = sx(side * radius)
                 section_rebar_marks.append(
                     f'<line x1="{x:.2f}" y1="{sy(top_z):.2f}" x2="{x:.2f}" y2="{bottom_y:.2f}" '
-                    f'stroke="#9a9a9a" stroke-width="0.9"/>'
+                    f'stroke="#b8b8b8" stroke-width="0.75"/>'
                 )
                 section_rebar_marks.append(
-                    f'<circle cx="{x:.2f}" cy="{sy(top_z):.2f}" r="4.2" fill="#4d4d4d"/>'
+                    f'<circle cx="{x:.2f}" cy="{sy(top_z):.2f}" r="3.2" fill="#4d4d4d" stroke="#222" stroke-width="0.7"/>'
                 )
                 section_rebar_marks.append(
-                    f'<circle cx="{x:.2f}" cy="{bottom_y:.2f}" r="4.2" fill="#4d4d4d"/>'
+                    f'<circle cx="{x:.2f}" cy="{bottom_y:.2f}" r="3.2" fill="#6f6f6f"/>'
                 )
 
         ring_dots = []
-        ring_radii = cls._sample_positions(cls._radii_between(pedestal_radius + cover, outer, data["ring_spacing"]), max_count=10)
+        ring_radii = cls._sample_positions(cls._radii_between(pedestal_radius + cover, outer, data["ring_spacing"]), max_count=8)
         for radius in ring_radii:
             for side in [-1.0, 1.0]:
                 ring_dots.append(
-                    f'<circle cx="{sx(side * radius):.2f}" cy="{bottom_y:.2f}" r="4.5" fill="#707070"/>'
+                    f'<circle cx="{sx(side * radius):.2f}" cy="{bottom_y:.2f}" r="3.1" fill="#707070"/>'
                 )
 
         pedestal_section_rebar = []
         grid_half = pedestal_radius - cover
         grid_bottom_z = center_h + cover
         grid_top_z = center_h + pedestal_h - cover
-        dot_radius = max(4.8, data["pedestal_grid_bar_diameter"] * scale * 1.65)
+        dot_radius = max(3.2, data["pedestal_grid_bar_diameter"] * scale * 1.1)
         pedestal_section_rebar.append(
             f'<rect x="{sx(-grid_half):.2f}" y="{sy(grid_top_z):.2f}" '
             f'width="{2.0 * grid_half * scale:.2f}" height="{(grid_top_z - grid_bottom_z) * scale:.2f}" '
@@ -1059,7 +1063,7 @@ class Controller(vkt.Controller):
         )
         tie_positions = cls._sample_positions(
             cls._positions_between(grid_bottom_z, grid_top_z, data["pedestal_tie_spacing"]),
-            max_count=12,
+            max_count=8,
         )
         for z in tie_positions:
             pedestal_section_rebar.append(
@@ -1069,7 +1073,7 @@ class Controller(vkt.Controller):
             )
         section_bar_positions = cls._sample_positions(
             cls._positions_between(-grid_half, grid_half, data["pedestal_grid_spacing"]),
-            max_count=11,
+            max_count=9,
         )
         for x_offset in section_bar_positions:
             for z in [grid_top_z, grid_bottom_z]:
