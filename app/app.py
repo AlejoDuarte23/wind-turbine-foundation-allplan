@@ -462,38 +462,31 @@ class Controller(vkt.Controller):
     def _pedestal_rebar_svg(cls, cx: float, cy: float, pedestal_radius: float, data: dict, scale: float) -> str:
         marks = []
         clear_radius = max(0.0, pedestal_radius - data["cover"])
-        inner_radius = max(clear_radius * 0.38, data["cover"])
-        cage_radius = clear_radius * 0.72
-        dot_radius = max(3.0, data["pedestal_grid_bar_diameter"] * scale * 1.8)
-        bar_count = min(72, max(36, int(2.0 * math.pi * cage_radius / max(data["pedestal_grid_spacing"], 1.0))))
+        dot_radius = max(2.8, data["pedestal_grid_bar_diameter"] * scale * 1.35)
 
-        for radius, stroke, width in [
-            (inner_radius, "#1f1f1f", 1.4),
-            (cage_radius, "#2f2f2f", 1.2),
-            (clear_radius, "#4a4a4a", 1.0),
-        ]:
+        offsets = cls._sample_positions(
+            cls._positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"]),
+            max_count=17,
+        )
+        for offset in offsets:
+            half_length = math.sqrt(max(0.0, clear_radius * clear_radius - offset * offset))
             marks.append(
-                f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{radius * scale:.2f}" '
-                f'fill="none" stroke="{stroke}" stroke-width="{width:.2f}"/>'
+                f'<line x1="{cx - half_length * scale:.2f}" y1="{cy - offset * scale:.2f}" '
+                f'x2="{cx + half_length * scale:.2f}" y2="{cy - offset * scale:.2f}" '
+                f'stroke="#202020" stroke-width="1.5"/>'
             )
-
-        for angle in cls._sample_angles(bar_count, bar_count):
-            bx = cx + cage_radius * scale * math.cos(angle)
-            by = cy - cage_radius * scale * math.sin(angle)
             marks.append(
-                f'<circle cx="{bx:.2f}" cy="{by:.2f}" r="{dot_radius:.2f}" '
-                f'fill="#fbfbfb" stroke="#1f1f1f" stroke-width="1.35"/>'
+                f'<line x1="{cx + offset * scale:.2f}" y1="{cy - half_length * scale:.2f}" '
+                f'x2="{cx + offset * scale:.2f}" y2="{cy + half_length * scale:.2f}" '
+                f'stroke="#4f4f4f" stroke-width="1.25"/>'
             )
-
-        for angle in cls._sample_angles(data["top_radial_bar_count"], 36):
-            x1 = cx + inner_radius * scale * math.cos(angle)
-            y1 = cy - inner_radius * scale * math.sin(angle)
-            x2 = cx + clear_radius * scale * math.cos(angle)
-            y2 = cy - clear_radius * scale * math.sin(angle)
-            marks.append(
-                f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" '
-                f'stroke="#2f2f2f" stroke-width="1.2"/>'
-            )
+            for x, y in [
+                (cx - half_length * scale, cy - offset * scale),
+                (cx + half_length * scale, cy - offset * scale),
+                (cx + offset * scale, cy - half_length * scale),
+                (cx + offset * scale, cy + half_length * scale),
+            ]:
+                marks.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{dot_radius:.2f}" fill="#1f1f1f"/>')
 
         return "".join(marks)
 

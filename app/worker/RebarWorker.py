@@ -217,23 +217,17 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
 def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
     pedestal_radius = data["pedestal_diameter"] / 2.0
     clear_radius = max(0.0, pedestal_radius - data["cover"])
-    cage_radius = clear_radius
-    inner_ring_radius = max(data["cover"], cage_radius * 0.38)
     bar_radius = data["pedestal_grid_bar_diameter"] / 2.0
     z_bottom = data["foundation_center_thickness"] + data["cover"]
     z_top = data["foundation_center_thickness"] + data["pedestal_height"] - data["cover"]
 
-    for z in [z_bottom, z_top]:
-        for x in positions_between(-cage_radius, cage_radius, data["pedestal_grid_spacing"]):
-            y_half = math.sqrt(max(0.0, cage_radius * cage_radius - x * x))
-            append_cylinder_y(elements, bar_radius, x, -y_half, y_half, z)
+    for x in positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"]):
+        y_half = math.sqrt(max(0.0, clear_radius * clear_radius - x * x))
+        append_vertical_rect_frame_y(elements, bar_radius, x, -y_half, y_half, z_bottom, z_top)
 
-        for y in positions_between(-cage_radius, cage_radius, data["pedestal_grid_spacing"]):
-            x_half = math.sqrt(max(0.0, cage_radius * cage_radius - y * y))
-            append_cylinder_x(elements, bar_radius, -x_half, x_half, y, z)
-
-        append_ring(elements, bar_radius, 0.0, 0.0, inner_ring_radius, z, segments=48)
-        append_ring(elements, bar_radius, 0.0, 0.0, cage_radius, z, segments=72)
+    for y in positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"]):
+        x_half = math.sqrt(max(0.0, clear_radius * clear_radius - y * y))
+        append_vertical_rect_frame_x(elements, bar_radius, -x_half, x_half, y, z_bottom, z_top)
 
 
 def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
@@ -307,6 +301,42 @@ def append_cylinder_z(elements: ModelEleList, radius: float, x: float, y: float,
         AllplanGeo.Vector3D(0.0, 0.0, 1.0),
     )
     elements.append_geometry_3d(AllplanGeo.BRep3D.CreateCylinder(placement, radius, z_max - z_min))
+
+
+def append_vertical_rect_frame_y(
+    elements: ModelEleList,
+    radius: float,
+    x: float,
+    y_min: float,
+    y_max: float,
+    z_bottom: float,
+    z_top: float,
+) -> None:
+    if y_max <= y_min or z_top <= z_bottom:
+        return
+
+    append_cylinder_y(elements, radius, x, y_min, y_max, z_bottom)
+    append_cylinder_y(elements, radius, x, y_min, y_max, z_top)
+    append_cylinder_z(elements, radius, x, y_min, z_bottom, z_top)
+    append_cylinder_z(elements, radius, x, y_max, z_bottom, z_top)
+
+
+def append_vertical_rect_frame_x(
+    elements: ModelEleList,
+    radius: float,
+    x_min: float,
+    x_max: float,
+    y: float,
+    z_bottom: float,
+    z_top: float,
+) -> None:
+    if x_max <= x_min or z_top <= z_bottom:
+        return
+
+    append_cylinder_x(elements, radius, x_min, x_max, y, z_bottom)
+    append_cylinder_x(elements, radius, x_min, x_max, y, z_top)
+    append_cylinder_z(elements, radius, x_min, y, z_bottom, z_top)
+    append_cylinder_z(elements, radius, x_max, y, z_bottom, z_top)
 
 
 def append_ring(elements: ModelEleList, bar_radius: float, cx: float, cy: float, radius: float, z: float, segments: int = 72) -> None:
@@ -508,7 +538,7 @@ def build_result(data: dict, run_id: str) -> dict:
     ring_count = len(radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]))
     pile_hoop_count = len(positions_between(-data["pile_depth"], 0.0, data["pile_hoop_spacing"]))
     pedestal_clear_radius = max(0.0, pedestal_radius - cover)
-    pedestal_grid_count = len(positions_between(-pedestal_clear_radius, pedestal_clear_radius, data["pedestal_grid_spacing"]))
+    pedestal_frame_count = len(positions_between(-pedestal_clear_radius, pedestal_clear_radius, data["pedestal_grid_spacing"]))
 
     return {
         "run_id": run_id,
@@ -522,8 +552,7 @@ def build_result(data: dict, run_id: str) -> dict:
             "base_ring_bars": ring_count,
             "top_radial_bars_before_trimming": data["top_radial_bar_count"],
             "bottom_radial_bars_before_trimming": data["bottom_radial_bar_count"],
-            "pedestal_grid_bars": 4 * pedestal_grid_count,
-            "pedestal_ring_bars": 4,
+            "pedestal_rectangular_frames": 2 * pedestal_frame_count,
             "pile_visual_vertical_bars": len(data["pile_centers"]) * data["pile_vertical_count"],
             "pile_visual_hoops": len(data["pile_centers"]) * pile_hoop_count,
         },
