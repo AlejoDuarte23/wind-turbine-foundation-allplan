@@ -174,14 +174,13 @@ class Controller(vkt.Controller):
         bottom_length = max(0.0, outer_radius - cover)
 
         pedestal_clear_radius = max(0.0, pedestal_radius - cover)
-        reduced_grid_radius = max(0.0, pedestal_clear_radius - 2.5 * data["pedestal_grid_bar_diameter"])
         pedestal_grid_x_lengths = cls._grid_bar_lengths(pedestal_clear_radius, data["pedestal_grid_spacing"])
-        pedestal_grid_y_lengths = cls._grid_bar_lengths(reduced_grid_radius, data["pedestal_grid_spacing"])
+        pedestal_grid_y_lengths = cls._grid_bar_lengths(pedestal_clear_radius, data["pedestal_grid_spacing"])
 
         pile_hoop_count = cls._bar_count(data["pile_depth"], data["pile_hoop_spacing"])
         pile_hoop_radius = max(0.0, data["pile_diameter"] / 2.0 - cover)
         pile_hoop_length = 2.0 * math.pi * pile_hoop_radius
-        pile_vertical_length = data["pile_depth"] + data["foundation_center_thickness"] - cover
+        pile_vertical_length = data["pile_depth"] + cls._foundation_top_z(data, data["pile_ring_radius"]) - cover
 
         rows = [
             [
@@ -213,21 +212,21 @@ class Controller(vkt.Controller):
             ],
             [
                 "P1",
-                "Pedestal grid, upper direction",
+                "Pedestal grid X, top and bottom",
                 data["pedestal_grid_bar_diameter"],
                 f"@ {data['pedestal_grid_spacing']:.0f} mm",
-                len(pedestal_grid_x_lengths),
+                2 * len(pedestal_grid_x_lengths),
                 cls._average(pedestal_grid_x_lengths),
-                sum(pedestal_grid_x_lengths),
+                2.0 * sum(pedestal_grid_x_lengths),
             ],
             [
                 "P2",
-                "Pedestal grid, reduced lower direction",
+                "Pedestal grid Y, top and bottom",
                 data["pedestal_grid_bar_diameter"],
                 f"@ {data['pedestal_grid_spacing']:.0f} mm",
-                len(pedestal_grid_y_lengths),
+                2 * len(pedestal_grid_y_lengths),
                 cls._average(pedestal_grid_y_lengths),
-                sum(pedestal_grid_y_lengths),
+                2.0 * sum(pedestal_grid_y_lengths),
             ],
             [
                 "C1",
@@ -645,8 +644,27 @@ class Controller(vkt.Controller):
         ]
         concrete_path = " ".join(f"{sx(x):.2f},{sy(z):.2f}" for x, z in concrete_points)
 
-        pile_lines = []
         pile_r = data["pile_diameter"] / 2.0
+        projected_pile_lines = []
+        projected_x_values = []
+        for pile in data["pile_centers"]:
+            if abs(abs(pile["x"]) - data["pile_ring_radius"]) < 1.0 and abs(pile["y"]) < 1.0:
+                continue
+            if any(abs(pile["x"] - value) < data["pile_diameter"] * 0.25 for value in projected_x_values):
+                continue
+            projected_x_values.append(pile["x"])
+            projected_pile_lines.append(
+                f'<line x1="{sx(pile["x"] - pile_r):.2f}" y1="{sy(0.0):.2f}" '
+                f'x2="{sx(pile["x"] - pile_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
+                f'stroke="#c4c4c4" stroke-width="0.8" stroke-dasharray="5 6"/>'
+            )
+            projected_pile_lines.append(
+                f'<line x1="{sx(pile["x"] + pile_r):.2f}" y1="{sy(0.0):.2f}" '
+                f'x2="{sx(pile["x"] + pile_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
+                f'stroke="#c4c4c4" stroke-width="0.8" stroke-dasharray="5 6"/>'
+            )
+
+        pile_lines = []
         pile_cage_r = max(0.0, pile_r - data["cover"])
         hoop_count = cls._bar_count(data["pile_depth"], data["pile_hoop_spacing"])
         for x in [-data["pile_ring_radius"], data["pile_ring_radius"]]:
@@ -659,9 +677,11 @@ class Controller(vkt.Controller):
                 f'stroke="#6a6a6a" stroke-width="1" stroke-dasharray="6 5"/>'
             )
             for side in [-1.0, 1.0]:
+                cage_x = x + side * pile_cage_r
+                cage_top_z = cls._foundation_top_z(data, min(foundation_radius, abs(cage_x))) - data["cover"]
                 pile_lines.append(
-                    f'<line x1="{sx(x + side * pile_cage_r):.2f}" y1="{sy(data["cover"]):.2f}" '
-                    f'x2="{sx(x + side * pile_cage_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
+                    f'<line x1="{sx(cage_x):.2f}" y1="{sy(cage_top_z):.2f}" '
+                    f'x2="{sx(cage_x):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
                     f'stroke="#3f3f3f" stroke-width="1.4"/>'
                 )
             for hoop_index in range(min(hoop_count, 10)):
@@ -713,22 +733,37 @@ class Controller(vkt.Controller):
                     f'<circle cx="{sx(side * radius):.2f}" cy="{bottom_y:.2f}" r="4.5" fill="#707070"/>'
                 )
 
-        grid_z = center_h + cover
+        pedestal_section_rebar = []
         grid_half = pedestal_radius - cover
-        grid_marks = [
-            f'<line x1="{sx(-grid_half):.2f}" y1="{sy(grid_z):.2f}" x2="{sx(grid_half):.2f}" y2="{sy(grid_z):.2f}" stroke="#3d3d3d" stroke-width="2"/>',
-            f'<line x1="{sx(-grid_half * 0.82):.2f}" y1="{sy(grid_z + data["pedestal_grid_bar_diameter"] * 1.7):.2f}" x2="{sx(grid_half * 0.82):.2f}" y2="{sy(grid_z + data["pedestal_grid_bar_diameter"] * 1.7):.2f}" stroke="#626262" stroke-width="1.6"/>',
-        ]
+        grid_bottom_z = center_h + cover
+        grid_top_z = center_h + pedestal_h - cover
+        dot_radius = max(4.8, data["pedestal_grid_bar_diameter"] * scale * 1.65)
+        pedestal_section_rebar.append(
+            f'<rect x="{sx(-grid_half):.2f}" y="{sy(grid_top_z):.2f}" '
+            f'width="{2.0 * grid_half * scale:.2f}" height="{(grid_top_z - grid_bottom_z) * scale:.2f}" '
+            f'fill="none" stroke="#2f2f2f" stroke-width="1.7"/>'
+        )
+        section_bar_positions = cls._sample_positions(
+            cls._positions_between(-grid_half, grid_half, data["pedestal_grid_spacing"]),
+            max_count=11,
+        )
+        for x_offset in section_bar_positions:
+            for z in [grid_top_z, grid_bottom_z]:
+                pedestal_section_rebar.append(
+                    f'<circle cx="{sx(x_offset):.2f}" cy="{sy(z):.2f}" r="{dot_radius:.2f}" '
+                    f'fill="#4d4d4d" stroke="#111111" stroke-width="1.3"/>'
+                )
 
         return f"""
       <text x="{panel_x:.0f}" y="{panel_y:.0f}" font-size="16" font-weight="650" fill="#111">Section</text>
       <polygon points="{concrete_path}" fill="#fbfbfb" stroke="#1f1f1f" stroke-width="3"/>
+      {''.join(projected_pile_lines)}
       {''.join(pile_lines)}
       {''.join(section_rebar_marks)}
       {bottom_rebar}
       {top_rebar}
       {''.join(ring_dots)}
-      {''.join(grid_marks)}
+      {''.join(pedestal_section_rebar)}
       <line x1="{sx(0.0):.2f}" y1="{sy(-data["pile_depth"]):.2f}" x2="{sx(0.0):.2f}" y2="{sy(center_h + pedestal_h):.2f}" stroke="#7e7e7e" stroke-width="1" stroke-dasharray="8 6"/>
       <text x="{sx(0.0) + 12.0:.2f}" y="{sy(center_h + pedestal_h) + 18.0:.2f}" font-size="12" fill="#333">axis</text>
 """

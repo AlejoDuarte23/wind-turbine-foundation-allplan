@@ -217,18 +217,23 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
 def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
     pedestal_radius = data["pedestal_diameter"] / 2.0
     clear_radius = max(0.0, pedestal_radius - data["cover"])
-    reduced_radius = max(0.0, clear_radius - 2.5 * data["pedestal_grid_bar_diameter"])
+    cage_radius = clear_radius
+    inner_ring_radius = max(data["cover"], cage_radius * 0.38)
     bar_radius = data["pedestal_grid_bar_diameter"] / 2.0
-    z_low = data["foundation_center_thickness"] + data["cover"]
-    z_high = z_low + data["pedestal_grid_bar_diameter"] * 1.7
+    z_bottom = data["foundation_center_thickness"] + data["cover"]
+    z_top = data["foundation_center_thickness"] + data["pedestal_height"] - data["cover"]
 
-    for x in positions_between(-reduced_radius, reduced_radius, data["pedestal_grid_spacing"]):
-        y_half = math.sqrt(max(0.0, reduced_radius * reduced_radius - x * x))
-        append_cylinder_y(elements, bar_radius, x, -y_half, y_half, z_low)
+    for z in [z_bottom, z_top]:
+        for x in positions_between(-cage_radius, cage_radius, data["pedestal_grid_spacing"]):
+            y_half = math.sqrt(max(0.0, cage_radius * cage_radius - x * x))
+            append_cylinder_y(elements, bar_radius, x, -y_half, y_half, z)
 
-    for y in positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"]):
-        x_half = math.sqrt(max(0.0, clear_radius * clear_radius - y * y))
-        append_cylinder_x(elements, bar_radius, -x_half, x_half, y, z_high)
+        for y in positions_between(-cage_radius, cage_radius, data["pedestal_grid_spacing"]):
+            x_half = math.sqrt(max(0.0, cage_radius * cage_radius - y * y))
+            append_cylinder_x(elements, bar_radius, -x_half, x_half, y, z)
+
+        append_ring(elements, bar_radius, 0.0, 0.0, inner_ring_radius, z, segments=48)
+        append_ring(elements, bar_radius, 0.0, 0.0, cage_radius, z, segments=72)
 
 
 def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
@@ -237,13 +242,14 @@ def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
         return
 
     z_min = -data["pile_depth"]
-    z_max = data["foundation_center_thickness"] - data["cover"]
     vertical_radius = data["pile_vertical_diameter"] / 2.0
     hoop_radius = data["pile_hoop_diameter"] / 2.0
 
     for pile in data["pile_centers"]:
         cx = pile["x"]
         cy = pile["y"]
+        pile_distance = math.hypot(cx, cy)
+        z_max = foundation_top_z(data, pile_distance) - data["cover"]
 
         for index in range(data["pile_vertical_count"]):
             angle = 2.0 * math.pi * index / data["pile_vertical_count"]
@@ -502,9 +508,7 @@ def build_result(data: dict, run_id: str) -> dict:
     ring_count = len(radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]))
     pile_hoop_count = len(positions_between(-data["pile_depth"], 0.0, data["pile_hoop_spacing"]))
     pedestal_clear_radius = max(0.0, pedestal_radius - cover)
-    reduced_grid_radius = max(0.0, pedestal_clear_radius - 2.5 * data["pedestal_grid_bar_diameter"])
-    pedestal_grid_upper = len(positions_between(-pedestal_clear_radius, pedestal_clear_radius, data["pedestal_grid_spacing"]))
-    pedestal_grid_lower = len(positions_between(-reduced_grid_radius, reduced_grid_radius, data["pedestal_grid_spacing"]))
+    pedestal_grid_count = len(positions_between(-pedestal_clear_radius, pedestal_clear_radius, data["pedestal_grid_spacing"]))
 
     return {
         "run_id": run_id,
@@ -518,7 +522,8 @@ def build_result(data: dict, run_id: str) -> dict:
             "base_ring_bars": ring_count,
             "top_radial_bars_before_trimming": data["top_radial_bar_count"],
             "bottom_radial_bars_before_trimming": data["bottom_radial_bar_count"],
-            "pedestal_grid_bars": pedestal_grid_upper + pedestal_grid_lower,
+            "pedestal_grid_bars": 4 * pedestal_grid_count,
+            "pedestal_ring_bars": 4,
             "pile_visual_vertical_bars": len(data["pile_centers"]) * data["pile_vertical_count"],
             "pile_visual_hoops": len(data["pile_centers"]) * pile_hoop_count,
         },
