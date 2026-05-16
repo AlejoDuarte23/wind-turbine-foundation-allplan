@@ -4,12 +4,12 @@
     xsi:noNamespaceSchemaLocation="https://pythonparts.allplan.com/2026/schemas/PythonPart.xsd">
     <Script>
         <Name>ViktorWorker\RebarWorker.py</Name>
-        <Title>VIKTOR Rebar Worker</Title>
+        <Title>Wind Turbine Foundation Worker</Title>
         <Version>1.0</Version>
     </Script>
 
     <Page>
         <Name>Page1</Name>
-        <Text>VIKTOR Rebar Worker</Text>
+        <Text>Wind Turbine Foundation Worker</Text>
     </Page>
 </Element>
