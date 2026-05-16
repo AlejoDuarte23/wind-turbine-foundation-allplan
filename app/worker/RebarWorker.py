@@ -98,9 +98,12 @@ def create_element(build_ele, doc) -> CreateElementResult:
 
         done_marker.write_text("done", encoding="utf-8")
         _log("worker_done.txt written.")
-        _log("Returning model elements through CreateElementResult.")
+        _log("Returning model elements through CreateElementResult with fixed origin placement.")
 
-        return CreateElementResult(model_elements)
+        return CreateElementResult(
+            elements=model_elements,
+            placement_point=AllplanGeo.Point3D(),
+        )
 
     except BaseException as error:
         _log(f"Worker failed: {error}")
