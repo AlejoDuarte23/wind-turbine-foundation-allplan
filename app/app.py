@@ -30,7 +30,6 @@ class Parametrization(vkt.Parametrization):
 
     reinforcement = vkt.Section("Reinforcement", initially_expanded=True)
     reinforcement.cover = vkt.NumberField("Concrete cover", default=75.0, min=25.0, max=200.0, suffix="mm", flex=50)
-    reinforcement.trim_clearance = vkt.NumberField("Pile trim clearance", default=150.0, min=0.0, suffix="mm", flex=50)
     reinforcement.top_radial_bar_diameter = vkt.NumberField("Top radial bar diameter", default=25.0, min=8.0, suffix="mm", flex=50)
     reinforcement.top_radial_bar_count = vkt.NumberField("Top radial bar count", default=32, min=8, max=96, flex=50)
     reinforcement.bottom_radial_bar_diameter = vkt.NumberField("Bottom radial bar diameter", default=25.0, min=8.0, suffix="mm", flex=50)
@@ -59,17 +58,17 @@ class Controller(vkt.Controller):
     label = "Wind Turbine Foundation"
     parametrization = Parametrization(width=36)
 
+    @vkt.GeometryView("Concrete geometry", duration_guess=1, x_axis_to_right=True)
+    def visual_model(self, params, **kwargs):
+        data = self._worker_input(params)
+        geometry = self._geometry_model(data)
+        return vkt.GeometryResult(geometry=geometry)
+
     @vkt.WebView("Foundation sketch", duration_guess=1)
     def rebar_sketch(self, params, **kwargs):
         data = self._worker_input(params)
         html = self._build_rebar_html(data)
         return vkt.WebResult(html=html)
-
-    @vkt.GeometryView("3D visual model", duration_guess=1, x_axis_to_right=True)
-    def visual_model(self, params, **kwargs):
-        data = self._worker_input(params)
-        geometry = self._geometry_model(data)
-        return vkt.GeometryResult(geometry=geometry)
 
     @vkt.TableView("Visual geometry schedule")
     def bar_schedule(self, params, **kwargs):
@@ -137,7 +136,6 @@ class Controller(vkt.Controller):
             "pile_depth": float(params.geometry.pile_depth),
             "pile_centers": cls.get_pile_centers(int(params.geometry.pile_count), pile_ring_radius),
             "cover": cover,
-            "trim_clearance": float(params.reinforcement.trim_clearance),
             "top_radial_bar_diameter": float(params.reinforcement.top_radial_bar_diameter),
             "top_radial_bar_count": int(params.reinforcement.top_radial_bar_count),
             "bottom_radial_bar_diameter": float(params.reinforcement.bottom_radial_bar_diameter),
@@ -180,6 +178,8 @@ class Controller(vkt.Controller):
         ring_total = sum(2.0 * math.pi * radius for radius in ring_radii)
 
         top_inner_radius = max(cover, pedestal_radius * 0.35)
+        top_ring_radii = cls._radii_between(top_inner_radius, outer_radius, data["ring_spacing"])
+        top_ring_total = sum(2.0 * math.pi * radius for radius in top_ring_radii)
         top_length = cls._sloped_radial_length(data, top_inner_radius, outer_radius)
         bottom_length = max(0.0, outer_radius - cover)
 
@@ -192,7 +192,7 @@ class Controller(vkt.Controller):
         pile_hoop_count = cls._bar_count(data["pile_depth"], data["pile_hoop_spacing"])
         pile_hoop_radius = max(0.0, data["pile_diameter"] / 2.0 - cover)
         pile_hoop_length = 2.0 * math.pi * pile_hoop_radius
-        pile_vertical_length = data["pile_depth"] + cls._foundation_top_z(data, data["pile_ring_radius"]) - cover
+        pile_vertical_length = data["pile_depth"] + cls._pile_rebar_extension(data, data["pile_ring_radius"])
 
         rows = [
             [
@@ -221,6 +221,15 @@ class Controller(vkt.Controller):
                 data["top_radial_bar_count"],
                 top_length,
                 data["top_radial_bar_count"] * top_length,
+            ],
+            [
+                "R4",
+                "Top circular cap rings",
+                data["ring_bar_diameter"],
+                f"@ {data['ring_spacing']:.0f} mm",
+                len(top_ring_radii),
+                top_ring_total / len(top_ring_radii) if top_ring_radii else 0.0,
+                top_ring_total,
             ],
             [
                 "P1",
@@ -288,8 +297,6 @@ class Controller(vkt.Controller):
         total_length = sum(row[-1] for row in schedule)
 
         plan = cls._plan_svg(data)
-        elevation = cls._pile_projection_svg(data)
-
         return f"""
 <!doctype html>
 <html>
@@ -353,11 +360,10 @@ class Controller(vkt.Controller):
         <span>Total visual length {total_length:.1f} m</span>
       </div>
     </div>
-    <svg viewBox="0 0 1120 720" role="img" aria-label="Plan and pile projection sketch">
+    <svg viewBox="0 0 590 660" role="img" aria-label="Plan rebar sketch">
       {plan}
-      {elevation}
     </svg>
-    <div class="caption">Grayscale sketch keeps the 2D view readable. The 3D visual model and Allplan export carry the heavier reinforcement geometry.</div>
+    <div class="caption">Plan-only grayscale rebar sketch. The concrete geometry is shown in the 3D view, and the Allplan export carries the full visual reinforcement model.</div>
   </div>
 </body>
 </html>
@@ -374,7 +380,6 @@ class Controller(vkt.Controller):
         outer_r = foundation_radius * scale
         ped_r = pedestal_radius * scale
         cover_r = max(0.0, (foundation_radius - data["cover"]) * scale)
-        core_r = max(15.0, ped_r * 0.34)
 
         pitch_r = data["pile_ring_radius"] * scale
         ring_marks = []
@@ -455,7 +460,6 @@ class Controller(vkt.Controller):
       <circle cx="{cx:.2f}" cy="{cy:.2f}" r="{ped_r:.2f}" fill="none" stroke="#1f1f1f" stroke-width="2.4"/>
       {pedestal_grid}
       {pedestal_rebar}
-      <circle cx="{cx:.2f}" cy="{cy:.2f}" r="{core_r:.2f}" fill="#ffffff" stroke="#1f1f1f" stroke-width="2.1"/>
       <line x1="{cx - outer_r:.2f}" y1="{cy + outer_r + 38.0:.2f}" x2="{cx + outer_r:.2f}" y2="{cy + outer_r + 38.0:.2f}" stroke="#111" stroke-width="1"/>
       <text x="{cx:.2f}" y="{cy + outer_r + 60.0:.2f}" text-anchor="middle" font-size="12" fill="#111">Ø {data["foundation_diameter"]:.0f} mm</text>
 """
@@ -527,7 +531,7 @@ class Controller(vkt.Controller):
         stroke_width: float,
     ) -> str:
         parts = []
-        avoid_radius = data["pile_diameter"] / 2.0 + data["cover"] + data["trim_clearance"]
+        avoid_radius = data["pile_diameter"] / 2.0 + data["cover"]
         for start, end in cls._radial_clear_segments(angle, r_start, r_end, data, avoid_radius):
             x1 = cx + start * scale * math.cos(angle)
             y1 = cy - start * scale * math.sin(angle)
@@ -541,7 +545,7 @@ class Controller(vkt.Controller):
 
     @classmethod
     def _trimmed_ring_svg(cls, cx: float, cy: float, radius: float, data: dict, scale: float) -> str:
-        avoid_radius = data["pile_diameter"] / 2.0 + data["cover"] + data["trim_clearance"]
+        avoid_radius = data["pile_diameter"] / 2.0 + data["cover"]
         segments = cls._ring_clear_angle_segments(radius, data, avoid_radius)
         parts = []
         for start_angle, end_angle in segments:
@@ -707,57 +711,73 @@ class Controller(vkt.Controller):
     @classmethod
     def _geometry_model(cls, data: dict):
         objects = []
-        steel = vkt.Material(color=(32, 32, 32), roughness=0.8, metalness=0.2)
-        secondary_steel = vkt.Material(color=(82, 82, 82), roughness=0.8, metalness=0.1)
-        light_steel = vkt.Material(color=(135, 135, 135), roughness=0.9, metalness=0.0)
+        concrete = vkt.Material(color=(213, 213, 208), opacity=0.62, roughness=1.0, metalness=0.0)
+        pile_concrete = vkt.Material(color=(188, 188, 184), opacity=0.72, roughness=1.0, metalness=0.0)
 
         foundation_radius = data["foundation_diameter"] / 2.0
         pedestal_radius = data["pedestal_diameter"] / 2.0
-        cover = data["cover"]
-        outer_radius = max(0.0, foundation_radius - cover)
+        edge_h = data["foundation_edge_thickness"]
         center_h = data["foundation_center_thickness"]
-        pedestal_top_z = center_h + data["pedestal_height"]
 
-        outline_size = 55.0
-        cls._add_geometry_ring(objects, foundation_radius, 0.0, outline_size, light_steel, 48, "foundation-bottom-outline")
-        cls._add_geometry_ring(objects, foundation_radius, data["foundation_edge_thickness"], outline_size, light_steel, 48, "foundation-edge-outline")
-        cls._add_geometry_ring(objects, pedestal_radius, center_h, outline_size, light_steel, 48, "pedestal-base-outline")
-        cls._add_geometry_ring(objects, pedestal_radius, pedestal_top_z, outline_size, light_steel, 48, "pedestal-top-outline")
+        cls._add_concrete_cylinder(objects, foundation_radius, 0.0, edge_h, concrete, "foundation-edge-cylinder")
 
-        ring_size = cls._visual_bar_size(data["ring_bar_diameter"])
-        ring_radii = cls._sample_positions(
-            cls._radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]),
-            max_count=9,
+        slope_height = max(0.0, center_h - edge_h)
+        if slope_height > 0.0 and foundation_radius > pedestal_radius:
+            stack_count = 18
+            stack_height = slope_height / stack_count
+            for index in range(stack_count):
+                fraction = (index + 1) / stack_count
+                radius = foundation_radius - (foundation_radius - pedestal_radius) * fraction
+                z_min = edge_h + index * stack_height
+                cls._add_concrete_cylinder(objects, radius, z_min, stack_height, concrete, f"foundation-slope-{index}")
+
+        cls._add_concrete_cylinder(
+            objects,
+            pedestal_radius,
+            center_h,
+            data["pedestal_height"],
+            concrete,
+            "pedestal-cylinder",
         )
-        for index, radius in enumerate(ring_radii):
-            z = cover
-            cls._add_geometry_ring(objects, radius, z, ring_size, secondary_steel, 36, f"base-ring-{index}")
 
-        top_bar_size = cls._visual_bar_size(data["top_radial_bar_diameter"])
-        top_inner = max(cover, pedestal_radius * 0.35)
-        for index, angle in enumerate(cls._sample_angles(data["top_radial_bar_count"], 36)):
-            start = (
-                top_inner * math.cos(angle),
-                top_inner * math.sin(angle),
-                cls._foundation_top_z(data, top_inner) - cover,
+        for index, pile in enumerate(data["pile_centers"]):
+            cls._add_concrete_cylinder(
+                objects,
+                data["pile_diameter"] / 2.0,
+                -data["pile_depth"],
+                data["pile_depth"],
+                pile_concrete,
+                f"pile-{index}",
+                center=(pile["x"], pile["y"]),
+                segments=32,
             )
-            end = (
-                outer_radius * math.cos(angle),
-                outer_radius * math.sin(angle),
-                cls._foundation_top_z(data, outer_radius) - cover,
-            )
-            cls._add_geometry_bar(objects, start, end, top_bar_size, steel, f"top-radial-{index}")
-
-        bottom_bar_size = cls._visual_bar_size(data["bottom_radial_bar_diameter"])
-        for index, angle in enumerate(cls._sample_angles(data["bottom_radial_bar_count"], 24, phase=math.pi / data["bottom_radial_bar_count"])):
-            start = (cover * math.cos(angle), cover * math.sin(angle), cover)
-            end = (outer_radius * math.cos(angle), outer_radius * math.sin(angle), cover)
-            cls._add_geometry_bar(objects, start, end, bottom_bar_size, secondary_steel, f"bottom-radial-{index}")
-
-        cls._add_pedestal_geometry(objects, data, steel, secondary_steel)
-        cls._add_pile_geometry(objects, data, secondary_steel, light_steel)
 
         return vkt.Group(objects)
+
+    @classmethod
+    def _add_concrete_cylinder(
+        cls,
+        objects: list,
+        radius: float,
+        z_min: float,
+        height: float,
+        material,
+        identifier: str,
+        center: tuple[float, float] = (0.0, 0.0),
+        segments: int = 72,
+    ) -> None:
+        if radius <= 0.0 or height <= 0.0:
+            return
+
+        line = vkt.Line(vkt.Point(center[0], center[1], z_min), vkt.Point(center[0], center[1], z_min + height))
+        objects.append(vkt.Extrusion(cls._circle_profile(radius, segments), line, material=material, identifier=identifier))
+
+    @staticmethod
+    def _circle_profile(radius: float, segments: int) -> list:
+        return [
+            vkt.Point(radius * math.cos(2.0 * math.pi * index / segments), radius * math.sin(2.0 * math.pi * index / segments), 0.0)
+            for index in range(segments)
+        ]
 
     @classmethod
     def _add_pedestal_geometry(cls, objects: list, data: dict, steel, secondary_steel) -> None:
@@ -1103,6 +1123,11 @@ class Controller(vkt.Controller):
             return edge_h
         slope_span = max(1.0, foundation_radius - pedestal_radius)
         return center_h - (center_h - edge_h) * (radius - pedestal_radius) / slope_span
+
+    @classmethod
+    def _pile_rebar_extension(cls, data: dict, radius: float) -> float:
+        local_cap_thickness = cls._foundation_top_z(data, radius)
+        return max(0.0, min(local_cap_thickness - data["cover"], local_cap_thickness * 0.45))
 
     @classmethod
     def _sloped_radial_length(cls, data: dict, start_radius: float, end_radius: float) -> float:

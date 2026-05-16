@@ -179,11 +179,14 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
     outer_radius = max(0.0, foundation_radius - cover)
     bottom_inner_radius = cover
     top_inner_radius = max(cover, pedestal_radius * 0.35)
-    avoid_radius = data["pile_diameter"] / 2.0 + cover + data["trim_clearance"]
+    avoid_radius = data["pile_diameter"] / 2.0 + cover
 
     ring_bar_radius = data["ring_bar_diameter"] / 2.0
     for radius in radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]):
         append_trimmed_ring(elements, ring_bar_radius, radius, cover, data, avoid_radius)
+
+    for radius in radii_between(top_inner_radius, outer_radius, data["ring_spacing"]):
+        append_trimmed_ring(elements, ring_bar_radius, radius, foundation_top_z(data, radius) - cover, data, avoid_radius)
 
     bottom_bar_radius = data["bottom_radial_bar_diameter"] / 2.0
     for index in range(data["bottom_radial_bar_count"]):
@@ -247,7 +250,7 @@ def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
         cx = pile["x"]
         cy = pile["y"]
         pile_distance = math.hypot(cx, cy)
-        z_max = foundation_top_z(data, pile_distance) - data["cover"]
+        z_max = pile_rebar_extension(data, pile_distance)
 
         for index in range(data["pile_vertical_count"]):
             angle = 2.0 * math.pi * index / data["pile_vertical_count"]
@@ -507,6 +510,11 @@ def foundation_top_z(data: dict, radius: float) -> float:
     return center_h - (center_h - edge_h) * (radius - pedestal_radius) / slope_span
 
 
+def pile_rebar_extension(data: dict, radius: float) -> float:
+    local_cap_thickness = foundation_top_z(data, radius)
+    return max(0.0, min(local_cap_thickness - data["cover"], local_cap_thickness * 0.45))
+
+
 def positions_between(start: float, end: float, spacing: float) -> list[float]:
     if end < start:
         return []
@@ -540,6 +548,7 @@ def build_result(data: dict, run_id: str) -> dict:
     cover = data["cover"]
     outer_radius = max(0.0, foundation_radius - cover)
     ring_count = len(radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]))
+    top_ring_count = len(radii_between(max(cover, pedestal_radius * 0.35), outer_radius, data["ring_spacing"]))
     pile_hoop_count = len(positions_between(-data["pile_depth"], 0.0, data["pile_hoop_spacing"]))
     pedestal_clear_radius = max(0.0, pedestal_radius - cover)
     pedestal_frame_count = len(positions_between(-pedestal_clear_radius, pedestal_clear_radius, data["pedestal_grid_spacing"]))
@@ -561,6 +570,7 @@ def build_result(data: dict, run_id: str) -> dict:
             "pedestal": 1,
             "piles": len(data["pile_centers"]),
             "base_ring_bars": ring_count,
+            "top_cap_ring_bars": top_ring_count,
             "top_radial_bars_before_trimming": data["top_radial_bar_count"],
             "bottom_radial_bars_before_trimming": data["bottom_radial_bar_count"],
             "pedestal_rectangular_frames": 2 * pedestal_frame_count,
