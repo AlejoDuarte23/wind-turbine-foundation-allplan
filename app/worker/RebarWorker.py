@@ -5,6 +5,7 @@ from pathlib import Path
 
 import NemAll_Python_BaseElements as AllplanBaseElements
 import NemAll_Python_Geometry as AllplanGeo
+import NemAll_Python_Reinforcement as AllplanReinf
 from CreateElementResult import CreateElementResult
 from TypeCollections.Curve3DList import Curve3DList
 from TypeCollections.ModelEleList import ModelEleList
@@ -183,27 +184,35 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
     bottom_inner_radius = cover
     top_inner_radius = max(cover, pedestal_radius * 0.35)
 
-    ring_bar_radius = data["ring_bar_diameter"] / 2.0
+    ring_diameter = data["ring_bar_diameter"]
+    append_circular_rebar_area(
+        elements=elements,
+        position_number=101,
+        diameter=ring_diameter,
+        radial_profile=[
+            (pedestal_radius + cover, cover),
+            (outer_radius, cover),
+        ],
+        spacing=data["ring_spacing"],
+    )
 
-    for radius in radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]):
-        append_ring(
-            elements=elements,
-            bar_radius=ring_bar_radius,
-            cx=0.0,
-            cy=0.0,
-            radius=radius,
-            z=cover,
+    top_profile = [
+        (top_inner_radius, foundation_top_z(data, top_inner_radius) - cover),
+    ]
+    if top_inner_radius < pedestal_radius < outer_radius:
+        top_profile.append(
+            (pedestal_radius, foundation_top_z(data, pedestal_radius) - cover)
         )
-
-    for radius in radii_between(top_inner_radius, outer_radius, data["ring_spacing"]):
-        append_ring(
-            elements=elements,
-            bar_radius=ring_bar_radius,
-            cx=0.0,
-            cy=0.0,
-            radius=radius,
-            z=foundation_top_z(data, radius) - cover,
-        )
+    top_profile.append(
+        (outer_radius, foundation_top_z(data, outer_radius) - cover)
+    )
+    append_circular_rebar_area(
+        elements=elements,
+        position_number=102,
+        diameter=ring_diameter,
+        radial_profile=top_profile,
+        spacing=data["ring_spacing"],
+    )
 
     bottom_bar_radius = data["bottom_radial_bar_diameter"] / 2.0
     for index in range(data["bottom_radial_bar_count"]):
@@ -406,6 +415,82 @@ def append_vertical_rect_frame_x(
     append_cylinder_x(elements, radius, x_min, x_max, y, z_top)
     append_cylinder_z(elements, radius, x_min, y, z_bottom, z_top)
     append_cylinder_z(elements, radius, x_max, y, z_bottom, z_top)
+
+
+def append_circular_rebar_area(
+    elements: ModelEleList,
+    position_number: int,
+    diameter: float,
+    radial_profile: list[tuple[float, float]],
+    spacing: float,
+    cx: float = 0.0,
+    cy: float = 0.0,
+    start_angle: float = 0.0,
+    end_angle: float = 360.0,
+    max_bar_length: float = 18000.0,
+    min_bar_length: float = 1000.0,
+    max_bar_rise: float = 10000.0,
+) -> None:
+    if diameter <= 0.0 or spacing <= 0.0:
+        return
+
+    clean_profile = [
+        (float(radius), float(z))
+        for radius, z in radial_profile
+        if radius > 0.0
+    ]
+    if len(clean_profile) < 2:
+        return
+
+    clean_profile.sort(key=lambda item: item[0])
+    inner_radius = clean_profile[0][0]
+    outer_radius = clean_profile[-1][0]
+    if outer_radius <= inner_radius:
+        return
+
+    contour = AllplanGeo.Polyline3D()
+    for radius, z in clean_profile:
+        contour += AllplanGeo.Point3D(cx + radius, cy, z)
+
+    rotation_axis = AllplanGeo.Line3D(
+        AllplanGeo.Point3D(cx, cy, 0.0),
+        AllplanGeo.Point3D(cx, cy, 1.0),
+    )
+    circular_area = AllplanReinf.CircularAreaElement(
+        position_number,
+        diameter,
+        -1,
+        -1,
+        rotation_axis,
+        contour,
+        start_angle,
+        end_angle,
+        start_angle,
+        end_angle,
+        0.0,
+        0.0,
+        0.0,
+    )
+    circular_area.SetBarProperties(
+        spacing,
+        max_bar_length,
+        min_bar_length,
+        0,
+        max_bar_length,
+        max_bar_length,
+        0.0,
+        max_bar_rise,
+    )
+    circular_area.SetOverlap(
+        0.0,
+        0.0,
+        False,
+        0.0,
+        0.0,
+        False,
+        50.0 * diameter,
+    )
+    elements.append(circular_area)
 
 
 def append_ring(elements: ModelEleList, bar_radius: float, cx: float, cy: float, radius: float, z: float, segments: int = 72) -> None:
