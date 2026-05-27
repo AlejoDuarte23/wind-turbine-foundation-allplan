@@ -30,10 +30,25 @@ class Parametrization(vkt.Parametrization):
 
     reinforcement = vkt.Section("Reinforcement", initially_expanded=True)
     reinforcement.cover = vkt.NumberField("Concrete cover", default=75.0, min=25.0, max=200.0, suffix="mm", flex=50)
+    reinforcement.use_symmetric_radial_bars = vkt.BooleanField("Use same top and bottom radial bars", default=True, flex=100)
     reinforcement.top_radial_bar_diameter = vkt.NumberField("Top radial bar diameter", default=25.0, min=8.0, suffix="mm", flex=50)
     reinforcement.top_radial_bar_count = vkt.NumberField("Top radial bar count", default=32, min=8, max=96, flex=50)
-    reinforcement.bottom_radial_bar_diameter = vkt.NumberField("Bottom radial bar diameter", default=25.0, min=8.0, suffix="mm", flex=50)
-    reinforcement.bottom_radial_bar_count = vkt.NumberField("Bottom radial bar count", default=32, min=8, max=96, flex=50)
+    reinforcement.bottom_radial_bar_diameter = vkt.NumberField(
+        "Bottom radial bar diameter",
+        default=25.0,
+        min=8.0,
+        suffix="mm",
+        flex=50,
+        visible=vkt.IsFalse(vkt.Lookup("reinforcement.use_symmetric_radial_bars")),
+    )
+    reinforcement.bottom_radial_bar_count = vkt.NumberField(
+        "Bottom radial bar count",
+        default=32,
+        min=8,
+        max=96,
+        flex=50,
+        visible=vkt.IsFalse(vkt.Lookup("reinforcement.use_symmetric_radial_bars")),
+    )
     reinforcement.ring_bar_diameter = vkt.NumberField("Circular base bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
     reinforcement.ring_spacing = vkt.NumberField("Circular base bar spacing", default=550.0, min=150.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_bar_diameter = vkt.NumberField("Pedestal grid bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
@@ -123,6 +138,19 @@ class Controller(vkt.Controller):
         pile_ring_radius = min(float(params.geometry.pile_ring_radius), max_pile_ring_radius)
         edge_thickness = float(params.geometry.foundation_edge_thickness)
         center_thickness = max(float(params.geometry.foundation_center_thickness), edge_thickness)
+        use_symmetric_radial_bars = bool(params.reinforcement.use_symmetric_radial_bars)
+        top_radial_bar_diameter = float(params.reinforcement.top_radial_bar_diameter)
+        top_radial_bar_count = int(params.reinforcement.top_radial_bar_count)
+        bottom_radial_bar_diameter = (
+            top_radial_bar_diameter
+            if use_symmetric_radial_bars
+            else float(params.reinforcement.bottom_radial_bar_diameter)
+        )
+        bottom_radial_bar_count = (
+            top_radial_bar_count
+            if use_symmetric_radial_bars
+            else int(params.reinforcement.bottom_radial_bar_count)
+        )
 
         return {
             "foundation_diameter": foundation_diameter,
@@ -136,10 +164,11 @@ class Controller(vkt.Controller):
             "pile_depth": float(params.geometry.pile_depth),
             "pile_centers": cls.get_pile_centers(int(params.geometry.pile_count), pile_ring_radius),
             "cover": cover,
-            "top_radial_bar_diameter": float(params.reinforcement.top_radial_bar_diameter),
-            "top_radial_bar_count": int(params.reinforcement.top_radial_bar_count),
-            "bottom_radial_bar_diameter": float(params.reinforcement.bottom_radial_bar_diameter),
-            "bottom_radial_bar_count": int(params.reinforcement.bottom_radial_bar_count),
+            "use_symmetric_radial_bars": use_symmetric_radial_bars,
+            "top_radial_bar_diameter": top_radial_bar_diameter,
+            "top_radial_bar_count": top_radial_bar_count,
+            "bottom_radial_bar_diameter": bottom_radial_bar_diameter,
+            "bottom_radial_bar_count": bottom_radial_bar_count,
             "ring_bar_diameter": float(params.reinforcement.ring_bar_diameter),
             "ring_spacing": float(params.reinforcement.ring_spacing),
             "pedestal_grid_bar_diameter": float(params.reinforcement.pedestal_grid_bar_diameter),
@@ -725,13 +754,16 @@ class Controller(vkt.Controller):
 
         slope_height = max(0.0, center_h - edge_h)
         if slope_height > 0.0 and foundation_radius > pedestal_radius:
-            stack_count = 18
-            stack_height = slope_height / stack_count
-            for index in range(stack_count):
-                fraction = (index + 1) / stack_count
-                radius = foundation_radius - (foundation_radius - pedestal_radius) * fraction
-                z_min = edge_h + index * stack_height
-                cls._add_concrete_cylinder(objects, radius, z_min, stack_height, concrete, f"foundation-slope-{index}")
+            cls._add_concrete_frustum(
+                objects=objects,
+                bottom_radius=foundation_radius,
+                top_radius=pedestal_radius,
+                z_min=edge_h,
+                height=slope_height,
+                material=concrete,
+                identifier="foundation-slope-frustum",
+                segments=96,
+            )
 
         cls._add_concrete_cylinder(
             objects,
@@ -773,6 +805,86 @@ class Controller(vkt.Controller):
 
         line = vkt.Line(vkt.Point(center[0], center[1], z_min), vkt.Point(center[0], center[1], z_min + height))
         objects.append(vkt.Extrusion(cls._circle_profile(radius, segments), line, material=material, identifier=identifier))
+
+    @classmethod
+    def _add_concrete_frustum(
+        cls,
+        objects: list,
+        bottom_radius: float,
+        top_radius: float,
+        z_min: float,
+        height: float,
+        material,
+        identifier: str,
+        center: tuple[float, float] = (0.0, 0.0),
+        segments: int = 96,
+    ) -> None:
+        if bottom_radius <= 0.0 or top_radius <= 0.0 or height <= 0.0:
+            return
+
+        cx, cy = center
+        z_bottom = z_min
+        z_top = z_min + height
+
+        bottom_center = vkt.Point(cx, cy, z_bottom)
+        top_center = vkt.Point(cx, cy, z_top)
+
+        bottom_points = []
+        top_points = []
+
+        for index in range(segments):
+            angle = 2.0 * math.pi * index / segments
+            cos_a = math.cos(angle)
+            sin_a = math.sin(angle)
+
+            bottom_points.append(
+                vkt.Point(
+                    cx + bottom_radius * cos_a,
+                    cy + bottom_radius * sin_a,
+                    z_bottom,
+                )
+            )
+            top_points.append(
+                vkt.Point(
+                    cx + top_radius * cos_a,
+                    cy + top_radius * sin_a,
+                    z_top,
+                )
+            )
+
+        triangles = []
+
+        for index in range(segments):
+            next_index = (index + 1) % segments
+
+            b0 = bottom_points[index]
+            b1 = bottom_points[next_index]
+            t0 = top_points[index]
+            t1 = top_points[next_index]
+
+            triangles.append(vkt.Triangle(b0, b1, t1))
+            triangles.append(vkt.Triangle(b0, t1, t0))
+
+            triangles.append(vkt.Triangle(bottom_center, b1, b0))
+            triangles.append(vkt.Triangle(top_center, t0, t1))
+
+        try:
+            objects.append(
+                vkt.TriangleAssembly(
+                    triangles,
+                    material=material,
+                    skip_duplicate_vertices_check=True,
+                    identifier=identifier,
+                )
+            )
+        except TypeError:
+            objects.append(
+                vkt.TriangleAssembly(
+                    triangles,
+                    material=material,
+                    skip_duplicate_vertices_check=True,
+                )
+            )
 
     @staticmethod
     def _circle_profile(radius: float, segments: int) -> list:

@@ -6,6 +6,7 @@ from pathlib import Path
 import NemAll_Python_BaseElements as AllplanBaseElements
 import NemAll_Python_Geometry as AllplanGeo
 from CreateElementResult import CreateElementResult
+from TypeCollections.Curve3DList import Curve3DList
 from TypeCollections.ModelEleList import ModelEleList
 
 
@@ -152,12 +153,14 @@ def add_concrete_context(elements: ModelEleList, data: dict) -> None:
 
     slope_height = max(0.0, center_h - edge_h)
     if slope_height > 0.0 and foundation_radius > pedestal_radius:
-        stack_count = 18
-        stack_height = slope_height / stack_count
-        for index in range(stack_count):
-            fraction = (index + 1) / stack_count
-            radius = foundation_radius - (foundation_radius - pedestal_radius) * fraction
-            append_vertical_cylinder(elements, radius, edge_h + index * stack_height, stack_height)
+        append_vertical_conical_frustum(
+            elements=elements,
+            bottom_radius=foundation_radius,
+            top_radius=pedestal_radius,
+            z_min=edge_h,
+            height=slope_height,
+            segments=96,
+        )
 
     append_vertical_cylinder(elements, pedestal_radius, center_h, data["pedestal_height"])
 
@@ -272,6 +275,54 @@ def append_vertical_cylinder(elements: ModelEleList, radius: float, z_min: float
         AllplanGeo.Vector3D(0.0, 0.0, 1.0),
     )
     elements.append_geometry_3d(AllplanGeo.BRep3D.CreateCylinder(placement, radius, height))
+
+
+def append_vertical_conical_frustum(
+    elements: ModelEleList,
+    bottom_radius: float,
+    top_radius: float,
+    z_min: float,
+    height: float,
+    cx: float = 0.0,
+    cy: float = 0.0,
+    segments: int = 96,
+) -> None:
+    if bottom_radius <= 0.0 or top_radius <= 0.0 or height <= 0.0:
+        return
+
+    full_circle = float(AllplanGeo.Angle.FromDeg(360))
+
+    bottom_profile = AllplanGeo.Arc3D(
+        center=AllplanGeo.Point3D(cx, cy, z_min),
+        minor=bottom_radius,
+        major=bottom_radius,
+        startAngle=0.0,
+        deltaAngle=full_circle,
+    )
+
+    top_profile = AllplanGeo.Arc3D(
+        center=AllplanGeo.Point3D(cx, cy, z_min + height),
+        minor=top_radius,
+        major=top_radius,
+        startAngle=0.0,
+        deltaAngle=full_circle,
+    )
+
+    error_code, frustum = AllplanGeo.CreateLoftedBRep3D(
+        [bottom_profile, top_profile],
+        Curve3DList(),
+        True,
+        False,
+        True,
+        False,
+    )
+
+    if frustum is None or error_code != AllplanGeo.eOK:
+        raise RuntimeError(
+            f"Could not create foundation conical frustum. Allplan error code: {error_code}"
+        )
+
+    elements.append_geometry_3d(frustum)
 
 
 def append_cylinder_x(elements: ModelEleList, radius: float, x_min: float, x_max: float, y: float, z: float) -> None:
@@ -566,7 +617,11 @@ def build_result(data: dict, run_id: str) -> dict:
         "drawing_file_number": DRAWING_FILE_NUMBER,
         "created": {
             "circular_foundation": 1,
-            "foundation_slope_slices": 18 if data["foundation_center_thickness"] > data["foundation_edge_thickness"] else 0,
+            "foundation_slope_slices": 0,
+            "foundation_slope_frustum": 1 if (
+                data["foundation_center_thickness"] > data["foundation_edge_thickness"]
+                and foundation_radius > pedestal_radius
+            ) else 0,
             "pedestal": 1,
             "piles": len(data["pile_centers"]),
             "base_ring_bars": ring_count,
