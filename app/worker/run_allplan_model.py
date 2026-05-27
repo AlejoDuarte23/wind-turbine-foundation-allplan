@@ -9,6 +9,7 @@ ALLPLAN_LOCAL = Path.home() / "Documents" / "Nemetschek" / "Allplan" / "2026" / 
 ALLPLAN_PROJECTS_DIR = Path(r"C:\Data\Allplan\Allplan 2026\Prj")
 PROJECT_NAME = "viktor-template"
 PROJECT_DIR = ALLPLAN_PROJECTS_DIR / f"{PROJECT_NAME}.prj"
+STAGING_PROJECT_DIR = ALLPLAN_PROJECTS_DIR / f"{PROJECT_NAME}.prj.incoming"
 
 
 def log(log_path: Path, message: str) -> None:
@@ -17,31 +18,74 @@ def log(log_path: Path, message: str) -> None:
         file.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
 
 
+def ensure_allplan_is_closed(log_path: Path) -> None:
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {ALLPLAN_EXE.name}", "/NH"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return
+    except Exception as error:
+        log(log_path, f"Could not check whether Allplan is running: {error}")
+        return
+
+    if ALLPLAN_EXE.name.lower() in result.stdout.lower():
+        message = (
+            f"{ALLPLAN_EXE.name} is already running. Close Allplan before starting "
+            "the VIKTOR worker so the template project can be replaced cleanly."
+        )
+        log(log_path, message)
+        raise RuntimeError(message)
+
+
 def install_template_project(template_zip: Path, log_path: Path) -> None:
     extract_dir = template_zip.parent / "_template_project_extract"
 
-    if extract_dir.exists():
-        shutil.rmtree(extract_dir)
+    if not template_zip.is_file():
+        raise FileNotFoundError(f"Missing template project zip: {template_zip}")
 
-    if PROJECT_DIR.exists():
-        try:
-            shutil.rmtree(PROJECT_DIR)
-            log(log_path, f"Removed existing project at {PROJECT_DIR}.")
-        except Exception as error:
-            log(log_path, f"Could not remove existing project because files may be locked: {error}")
-            log(log_path, "Will reuse existing project.")
-            return
+    try:
+        for temp_dir in [extract_dir, STAGING_PROJECT_DIR]:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
 
-    extract_dir.mkdir(parents=True, exist_ok=True)
-    shutil.unpack_archive(str(template_zip), str(extract_dir), "zip")
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        shutil.unpack_archive(str(template_zip), str(extract_dir), "zip")
 
-    project_folder_inside_zip = extract_dir / f"{PROJECT_NAME}.prj"
-    if project_folder_inside_zip.exists():
-        shutil.copytree(project_folder_inside_zip, PROJECT_DIR)
-    else:
-        shutil.copytree(extract_dir, PROJECT_DIR)
+        project_folder_inside_zip = extract_dir / f"{PROJECT_NAME}.prj"
+        project_source = project_folder_inside_zip if project_folder_inside_zip.exists() else extract_dir
 
-    shutil.rmtree(extract_dir)
+        if not project_source.is_dir() or not any(project_source.iterdir()):
+            raise RuntimeError(f"Template project zip did not contain a usable project folder: {template_zip}")
+
+        ALLPLAN_PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(project_source, STAGING_PROJECT_DIR)
+        log(log_path, f"Prepared fresh project copy at {STAGING_PROJECT_DIR}.")
+
+        if PROJECT_DIR.exists():
+            try:
+                shutil.rmtree(PROJECT_DIR)
+                log(log_path, f"Removed existing project at {PROJECT_DIR}.")
+            except Exception as error:
+                message = (
+                    f"Could not remove existing project at {PROJECT_DIR}. "
+                    "Close Allplan and retry so the VIKTOR template can replace it cleanly."
+                )
+                log(log_path, f"{message} Original error: {error}")
+                raise RuntimeError(message) from error
+
+        shutil.move(str(STAGING_PROJECT_DIR), str(PROJECT_DIR))
+        log(log_path, f"Installed fresh template project at {PROJECT_DIR}.")
+    finally:
+        for temp_dir in [extract_dir, STAGING_PROJECT_DIR]:
+            if temp_dir.exists():
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as error:
+                    log(log_path, f"Could not remove temporary folder {temp_dir}: {error}")
 
 
 def main() -> None:
@@ -60,6 +104,7 @@ def main() -> None:
         output_log.unlink()
 
     log(output_log, "Worker started.")
+    ensure_allplan_is_closed(output_log)
     log(output_log, f"Installing template project from {template_zip}.")
     install_template_project(template_zip, output_log)
     log(output_log, f"Template project ready at {PROJECT_DIR}.")
