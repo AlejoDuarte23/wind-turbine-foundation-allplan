@@ -6,7 +6,10 @@ from pathlib import Path
 import NemAll_Python_BaseElements as AllplanBaseElements
 import NemAll_Python_Geometry as AllplanGeo
 import NemAll_Python_Reinforcement as AllplanReinf
+import StdReinfShapeBuilder.GeneralReinfShapeBuilder as GeneralShapeBuilder
 from CreateElementResult import CreateElementResult
+from StdReinfShapeBuilder.ConcreteCoverProperties import ConcreteCoverProperties
+from StdReinfShapeBuilder.ReinforcementShapeProperties import ReinforcementShapeProperties
 from TypeCollections.Curve3DList import Curve3DList
 from TypeCollections.ModelEleList import ModelEleList
 
@@ -269,12 +272,16 @@ def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
 
 
 def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
-    radius = data["pile_diameter"] / 2.0 - data["cover"]
-    if radius <= 0.0:
+    pile_radius = data["pile_diameter"] / 2.0
+    cover = data["cover"]
+    vertical_diameter = data["pile_vertical_diameter"]
+    hoop_diameter = data["pile_hoop_diameter"]
+    vertical_axis_radius = pile_radius - cover - vertical_diameter / 2.0
+    hoop_axis_radius = pile_radius - cover - hoop_diameter / 2.0
+    if vertical_axis_radius <= 0.0:
         return
 
-    z_min = -data["pile_depth"]
-    vertical_radius = data["pile_vertical_diameter"] / 2.0
+    z_min = -data["pile_depth"] + cover
 
     for pile_index, pile in enumerate(data["pile_centers"]):
         cx = pile["x"]
@@ -282,19 +289,25 @@ def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
         pile_distance = math.hypot(cx, cy)
         z_max = pile_rebar_extension(data, pile_distance)
 
-        for index in range(data["pile_vertical_count"]):
-            angle = 2.0 * math.pi * index / data["pile_vertical_count"]
-            x = cx + radius * math.cos(angle)
-            y = cy + radius * math.sin(angle)
-            append_cylinder_z(elements, vertical_radius, x, y, z_min, z_max)
+        append_radial_vertical_rebar_placement(
+            elements=elements,
+            position_number=401 + pile_index,
+            diameter=vertical_diameter,
+            cx=cx,
+            cy=cy,
+            radius=vertical_axis_radius,
+            z_min=z_min,
+            z_max=z_max,
+            bar_count=data["pile_vertical_count"],
+        )
 
         append_vertical_circular_rebar_stack(
             elements=elements,
-            position_number=300 + pile_index,
-            diameter=data["pile_hoop_diameter"],
+            position_number=501 + pile_index,
+            diameter=hoop_diameter,
             cx=cx,
             cy=cy,
-            radius=radius,
+            radius=hoop_axis_radius,
             z_start=z_min,
             z_end=0.0,
             spacing=data["pile_hoop_spacing"],
@@ -574,6 +587,75 @@ def append_vertical_circular_rebar_stack(
     elements.append(circular_area)
 
 
+def append_radial_vertical_rebar_placement(
+    elements: ModelEleList,
+    position_number: int,
+    diameter: float,
+    cx: float,
+    cy: float,
+    radius: float,
+    z_min: float,
+    z_max: float,
+    bar_count: int,
+) -> None:
+    if diameter <= 0.0 or radius <= 0.0 or bar_count <= 0:
+        return
+    if z_max <= z_min:
+        return
+
+    start_point = AllplanGeo.Point3D(cx + radius, cy, z_min)
+    end_point = AllplanGeo.Point3D(cx + radius, cy, z_max)
+    bending_shape = create_straight_rebar_shape(
+        diameter=diameter,
+        start_point=start_point,
+        end_point=end_point,
+    )
+    rotation_axis = AllplanGeo.Line3D(
+        AllplanGeo.Point3D(cx, cy, z_min),
+        AllplanGeo.Point3D(cx, cy, z_min + 1.0),
+    )
+    delta_angle = AllplanGeo.Angle.FromDeg(-360.0 / float(bar_count))
+    placement = AllplanReinf.BarPlacement(
+        positionNumber=position_number,
+        barCount=bar_count,
+        rotationAxis=rotation_axis,
+        rotationAngle=delta_angle,
+        bendingShape=bending_shape,
+    )
+    elements.append(placement)
+
+
+def create_straight_rebar_shape(
+    diameter: float,
+    start_point: AllplanGeo.Point3D,
+    end_point: AllplanGeo.Point3D,
+):
+    if diameter <= 0.0:
+        raise RuntimeError("Rebar diameter must be greater than zero.")
+
+    shape_properties = ReinforcementShapeProperties.rebar(
+        diameter=diameter,
+        bending_roller=4.0,
+        steel_grade=-1,
+        concrete_grade=-1,
+        bending_shape_type=AllplanReinf.BendingShapeType.LongitudinalBar,
+    )
+    zero_cover = ConcreteCoverProperties(
+        left=0.0,
+        bottom=0.0,
+        right=0.0,
+        top=0.0,
+    )
+    return GeneralShapeBuilder.create_longitudinal_shape_with_anchorage(
+        from_point=start_point,
+        to_point=end_point,
+        shape_props=shape_properties,
+        concrete_cover_props=zero_cover,
+        start_anchorage=0.0,
+        end_anchorage=0.0,
+    )
+
+
 def append_untrimmed_radial_bar(
     elements: ModelEleList,
     bar_radius: float,
@@ -688,7 +770,7 @@ def build_result(data: dict, run_id: str) -> dict:
     outer_radius = max(0.0, foundation_radius - cover)
     ring_count = len(radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]))
     top_ring_count = len(radii_between(max(cover, pedestal_radius * 0.35), outer_radius, data["ring_spacing"]))
-    pile_hoop_count = len(positions_between(-data["pile_depth"], 0.0, data["pile_hoop_spacing"]))
+    pile_hoop_count = len(positions_between(-data["pile_depth"] + cover, 0.0, data["pile_hoop_spacing"]))
     pedestal_clear_radius = max(0.0, pedestal_radius - cover)
     pedestal_frame_count = len(positions_between(-pedestal_clear_radius, pedestal_clear_radius, data["pedestal_grid_spacing"]))
     pedestal_tie_count = len(
@@ -718,8 +800,9 @@ def build_result(data: dict, run_id: str) -> dict:
             "bottom_radial_bars_before_trimming": data["bottom_radial_bar_count"],
             "pedestal_rectangular_frames": 2 * pedestal_frame_count,
             "pedestal_circular_ties": pedestal_tie_count,
-            "pile_visual_vertical_bars": len(data["pile_centers"]) * data["pile_vertical_count"],
-            "pile_visual_hoops": len(data["pile_centers"]) * pile_hoop_count,
+            "pile_real_vertical_bar_placements": len(data["pile_centers"]),
+            "pile_real_vertical_bars": len(data["pile_centers"]) * data["pile_vertical_count"],
+            "pile_real_hoops": len(data["pile_centers"]) * pile_hoop_count,
         },
         "inputs": data,
     }
