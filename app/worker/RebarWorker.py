@@ -182,41 +182,52 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
     outer_radius = max(0.0, foundation_radius - cover)
     bottom_inner_radius = cover
     top_inner_radius = max(cover, pedestal_radius * 0.35)
-    avoid_radius = data["pile_diameter"] / 2.0 + cover
 
     ring_bar_radius = data["ring_bar_diameter"] / 2.0
+
     for radius in radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]):
-        append_trimmed_ring(elements, ring_bar_radius, radius, cover, data, avoid_radius)
+        append_ring(
+            elements=elements,
+            bar_radius=ring_bar_radius,
+            cx=0.0,
+            cy=0.0,
+            radius=radius,
+            z=cover,
+        )
 
     for radius in radii_between(top_inner_radius, outer_radius, data["ring_spacing"]):
-        append_trimmed_ring(elements, ring_bar_radius, radius, foundation_top_z(data, radius) - cover, data, avoid_radius)
+        append_ring(
+            elements=elements,
+            bar_radius=ring_bar_radius,
+            cx=0.0,
+            cy=0.0,
+            radius=radius,
+            z=foundation_top_z(data, radius) - cover,
+        )
 
     bottom_bar_radius = data["bottom_radial_bar_diameter"] / 2.0
     for index in range(data["bottom_radial_bar_count"]):
         angle = 2.0 * math.pi * index / data["bottom_radial_bar_count"]
-        append_trimmed_radial_bar(
-            elements,
-            bottom_bar_radius,
-            angle,
-            bottom_inner_radius,
-            outer_radius,
-            lambda radius: cover,
-            data,
-            avoid_radius,
+        append_untrimmed_radial_bar(
+            elements=elements,
+            bar_radius=bottom_bar_radius,
+            angle=angle,
+            r_start=bottom_inner_radius,
+            r_end=outer_radius,
+            z_at_radius=lambda radius: cover,
         )
 
     top_bar_radius = data["top_radial_bar_diameter"] / 2.0
     for index in range(data["top_radial_bar_count"]):
         angle = 2.0 * math.pi * index / data["top_radial_bar_count"]
-        append_trimmed_radial_bar(
-            elements,
-            top_bar_radius,
-            angle,
-            top_inner_radius,
-            outer_radius,
-            lambda radius: foundation_top_z(data, radius) - cover,
-            data,
-            avoid_radius,
+        append_untrimmed_radial_bar(
+            elements=elements,
+            bar_radius=top_bar_radius,
+            angle=angle,
+            r_start=top_inner_radius,
+            r_end=outer_radius,
+            z_at_radius=lambda radius: foundation_top_z(data, radius) - cover,
+            split_radii=[pedestal_radius],
         )
 
 
@@ -398,68 +409,87 @@ def append_vertical_rect_frame_x(
 
 
 def append_ring(elements: ModelEleList, bar_radius: float, cx: float, cy: float, radius: float, z: float, segments: int = 72) -> None:
-    points = []
-    for index in range(segments + 1):
-        angle = 2.0 * math.pi * index / segments
-        points.append((cx + radius * math.cos(angle), cy + radius * math.sin(angle), z))
-    append_polyline_cylinders(elements, bar_radius, points)
+    append_revolved_circular_bar(
+        elements=elements,
+        bar_radius=bar_radius,
+        cx=cx,
+        cy=cy,
+        radius=radius,
+        z=z,
+    )
 
 
-def append_trimmed_ring(
+def append_revolved_circular_bar(
     elements: ModelEleList,
     bar_radius: float,
+    cx: float,
+    cy: float,
     radius: float,
     z: float,
-    data: dict,
-    avoid_radius: float,
-    segments: int = 96,
 ) -> None:
-    current_points = []
-    for index in range(segments + 1):
-        angle = 2.0 * math.pi * index / segments
-        point_coords = (radius * math.cos(angle), radius * math.sin(angle), z)
+    if bar_radius <= 0.0 or radius <= 0.0:
+        return
 
-        if index == segments:
-            keep = bool(current_points) and not point_clashes_with_piles(point_coords[0], point_coords[1], data, avoid_radius)
-        else:
-            midpoint_angle = angle + math.pi / segments
-            mx = radius * math.cos(midpoint_angle)
-            my = radius * math.sin(midpoint_angle)
-            keep = not point_clashes_with_piles(mx, my, data, avoid_radius)
+    if radius <= bar_radius:
+        raise RuntimeError(
+            f"Cannot create circular bar. Ring radius {radius} must be larger than bar radius {bar_radius}."
+        )
 
-        if keep:
-            current_points.append(point_coords)
-        else:
-            if len(current_points) > 1:
-                append_polyline_cylinders(elements, bar_radius, current_points)
-            current_points = []
+    profile = AllplanGeo.Arc3D(
+        AllplanGeo.Point3D(cx + radius, cy, z),
+        AllplanGeo.Vector3D(1.0, 0.0, 0.0),
+        AllplanGeo.Vector3D(0.0, 1.0, 0.0),
+        bar_radius,
+        bar_radius,
+        0.0,
+        2.0 * math.pi,
+    )
 
-    if len(current_points) > 1:
-        append_polyline_cylinders(elements, bar_radius, current_points)
+    axis = AllplanGeo.Axis3D(
+        AllplanGeo.Point3D(cx, cy, z),
+        AllplanGeo.Vector3D(0.0, 0.0, 1.0),
+    )
+
+    error_code, ring_brep = AllplanGeo.CreateRevolvedBRep3D(
+        [profile],
+        axis,
+        AllplanGeo.Angle(),
+        True,
+        0,
+    )
+
+    if ring_brep is None or error_code != AllplanGeo.eOK:
+        raise RuntimeError(f"Could not create revolved circular bar. Allplan error code: {error_code}")
+
+    elements.append_geometry_3d(ring_brep)
 
 
-def append_trimmed_radial_bar(
+def append_untrimmed_radial_bar(
     elements: ModelEleList,
     bar_radius: float,
     angle: float,
     r_start: float,
     r_end: float,
     z_at_radius,
-    data: dict,
-    avoid_radius: float,
+    split_radii: list[float] | None = None,
 ) -> None:
     if r_end <= r_start:
         return
 
-    for start, end in radial_clear_segments(angle, r_start, r_end, data, avoid_radius):
-        start_point = radial_point(angle, start, z_at_radius(start))
-        end_point = radial_point(angle, end, z_at_radius(end))
+    radii = [r_start]
+
+    if split_radii:
+        for split_radius in split_radii:
+            if r_start < split_radius < r_end:
+                radii.append(split_radius)
+
+    radii.append(r_end)
+    radii = sorted(set(radii))
+
+    for start_radius, end_radius in zip(radii, radii[1:]):
+        start_point = radial_point(angle, start_radius, z_at_radius(start_radius))
+        end_point = radial_point(angle, end_radius, z_at_radius(end_radius))
         append_cylinder_between(elements, bar_radius, start_point, end_point)
-
-
-def append_polyline_cylinders(elements: ModelEleList, radius: float, points: list[tuple[float, float, float]]) -> None:
-    for start, end in zip(points, points[1:]):
-        append_cylinder_between(elements, radius, start, end)
 
 
 def append_cylinder_between(elements: ModelEleList, radius: float, start: tuple[float, float, float], end: tuple[float, float, float]) -> None:
@@ -500,50 +530,6 @@ def cross(left: tuple[float, float, float], right: tuple[float, float, float]) -
     )
 
 
-def radial_clear_segments(angle: float, r_start: float, r_end: float, data: dict, avoid_radius: float) -> list[tuple[float, float]]:
-    segments = [(r_start, r_end)]
-    pile_ring_radius = data["pile_ring_radius"]
-
-    for pile in data["pile_centers"]:
-        pile_angle = pile["angle"]
-        delta = normalize_angle(angle - pile_angle)
-        distance_to_ray = abs(pile_ring_radius * math.sin(delta))
-        projection = pile_ring_radius * math.cos(delta)
-
-        if distance_to_ray >= avoid_radius or projection <= r_start or projection >= r_end:
-            continue
-
-        half_gap = math.sqrt(max(0.0, avoid_radius * avoid_radius - distance_to_ray * distance_to_ray))
-        segments = subtract_interval(segments, projection - half_gap, projection + half_gap)
-
-    return segments
-
-
-def subtract_interval(segments: list[tuple[float, float]], cut_start: float, cut_end: float) -> list[tuple[float, float]]:
-    remaining = []
-    for start, end in segments:
-        if cut_end <= start or cut_start >= end:
-            remaining.append((start, end))
-            continue
-
-        if cut_start > start:
-            remaining.append((start, min(cut_start, end)))
-        if cut_end < end:
-            remaining.append((max(cut_end, start), end))
-
-    return [(start, end) for start, end in remaining if end - start > 1.0]
-
-
-def point_clashes_with_piles(x: float, y: float, data: dict, avoid_radius: float) -> bool:
-    avoid_square = avoid_radius * avoid_radius
-    for pile in data["pile_centers"]:
-        dx = x - pile["x"]
-        dy = y - pile["y"]
-        if dx * dx + dy * dy < avoid_square:
-            return True
-    return False
-
-
 def radial_point(angle: float, radius: float, z: float) -> tuple[float, float, float]:
     return (radius * math.cos(angle), radius * math.sin(angle), z)
 
@@ -579,14 +565,6 @@ def positions_between(start: float, end: float, spacing: float) -> list[float]:
 
 def radii_between(start: float, end: float, spacing: float) -> list[float]:
     return positions_between(start, end, spacing)
-
-
-def normalize_angle(angle: float) -> float:
-    while angle <= -math.pi:
-        angle += 2.0 * math.pi
-    while angle > math.pi:
-        angle -= 2.0 * math.pi
-    return angle
 
 
 def point(coords: tuple[float, float, float]):
