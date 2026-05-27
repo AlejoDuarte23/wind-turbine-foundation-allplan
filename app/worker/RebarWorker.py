@@ -6,6 +6,7 @@ from pathlib import Path
 import NemAll_Python_BaseElements as AllplanBaseElements
 import NemAll_Python_Geometry as AllplanGeo
 from CreateElementResult import CreateElementResult
+from TypeCollections.Curve3DList import Curve3DList
 from TypeCollections.ModelEleList import ModelEleList
 
 
@@ -289,12 +290,14 @@ def append_vertical_conical_frustum(
     if bottom_radius <= 0.0 or top_radius <= 0.0 or height <= 0.0:
         return
 
+    full_circle = float(AllplanGeo.Angle.FromDeg(360))
+
     bottom_profile = AllplanGeo.Arc3D(
         center=AllplanGeo.Point3D(cx, cy, z_min),
         minor=bottom_radius,
         major=bottom_radius,
         startAngle=0.0,
-        deltaAngle=2.0 * math.pi,
+        deltaAngle=full_circle,
     )
 
     top_profile = AllplanGeo.Arc3D(
@@ -302,20 +305,22 @@ def append_vertical_conical_frustum(
         minor=top_radius,
         major=top_radius,
         startAngle=0.0,
-        deltaAngle=2.0 * math.pi,
+        deltaAngle=full_circle,
     )
 
     error_code, frustum = AllplanGeo.CreateLoftedBRep3D(
-        outerProfiles_object=[bottom_profile, top_profile],
-        innerProfiles_object=[],
-        closecaps=True,
-        createprofileedges=False,
-        linear=True,
-        periodic=False,
+        [bottom_profile, top_profile],
+        Curve3DList(),
+        True,
+        False,
+        True,
+        False,
     )
 
-    if frustum is None:
-        raise RuntimeError(f"Could not create foundation conical frustum. Allplan error code: {error_code}")
+    if frustum is None or error_code != AllplanGeo.eOK:
+        raise RuntimeError(
+            f"Could not create foundation conical frustum. Allplan error code: {error_code}"
+        )
 
     elements.append_geometry_3d(frustum)
 
