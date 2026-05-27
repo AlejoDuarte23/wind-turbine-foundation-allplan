@@ -244,7 +244,6 @@ def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
     pedestal_radius = data["pedestal_diameter"] / 2.0
     clear_radius = max(0.0, pedestal_radius - data["cover"])
     bar_radius = data["pedestal_grid_bar_diameter"] / 2.0
-    tie_radius = data["pedestal_tie_diameter"] / 2.0
     z_bottom = data["foundation_center_thickness"] + data["cover"]
     z_top = data["foundation_center_thickness"] + data["pedestal_height"] - data["cover"]
 
@@ -256,8 +255,17 @@ def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
         x_half = math.sqrt(max(0.0, clear_radius * clear_radius - y * y))
         append_vertical_rect_frame_x(elements, bar_radius, -x_half, x_half, y, z_bottom, z_top)
 
-    for z in positions_between(z_bottom, z_top, data["pedestal_tie_spacing"]):
-        append_ring(elements, tie_radius, 0.0, 0.0, clear_radius, z, segments=72)
+    append_vertical_circular_rebar_stack(
+        elements=elements,
+        position_number=201,
+        diameter=data["pedestal_tie_diameter"],
+        cx=0.0,
+        cy=0.0,
+        radius=clear_radius,
+        z_start=z_bottom,
+        z_end=z_top,
+        spacing=data["pedestal_tie_spacing"],
+    )
 
 
 def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
@@ -267,9 +275,8 @@ def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
 
     z_min = -data["pile_depth"]
     vertical_radius = data["pile_vertical_diameter"] / 2.0
-    hoop_radius = data["pile_hoop_diameter"] / 2.0
 
-    for pile in data["pile_centers"]:
+    for pile_index, pile in enumerate(data["pile_centers"]):
         cx = pile["x"]
         cy = pile["y"]
         pile_distance = math.hypot(cx, cy)
@@ -281,8 +288,17 @@ def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
             y = cy + radius * math.sin(angle)
             append_cylinder_z(elements, vertical_radius, x, y, z_min, z_max)
 
-        for z in positions_between(z_min, 0.0, data["pile_hoop_spacing"]):
-            append_ring(elements, hoop_radius, cx, cy, radius, z, segments=20)
+        append_vertical_circular_rebar_stack(
+            elements=elements,
+            position_number=300 + pile_index,
+            diameter=data["pile_hoop_diameter"],
+            cx=cx,
+            cy=cy,
+            radius=radius,
+            z_start=z_min,
+            z_end=0.0,
+            spacing=data["pile_hoop_spacing"],
+        )
 
 
 def append_vertical_cylinder(elements: ModelEleList, radius: float, z_min: float, height: float, cx: float = 0.0, cy: float = 0.0) -> None:
@@ -493,60 +509,69 @@ def append_circular_rebar_area(
     elements.append(circular_area)
 
 
-def append_ring(elements: ModelEleList, bar_radius: float, cx: float, cy: float, radius: float, z: float, segments: int = 72) -> None:
-    append_revolved_circular_bar(
-        elements=elements,
-        bar_radius=bar_radius,
-        cx=cx,
-        cy=cy,
-        radius=radius,
-        z=z,
-    )
-
-
-def append_revolved_circular_bar(
+def append_vertical_circular_rebar_stack(
     elements: ModelEleList,
-    bar_radius: float,
+    position_number: int,
+    diameter: float,
     cx: float,
     cy: float,
     radius: float,
-    z: float,
+    z_start: float,
+    z_end: float,
+    spacing: float,
+    start_angle: float = 0.0,
+    end_angle: float = 360.0,
+    max_bar_length: float = 18000.0,
+    min_bar_length: float = 1000.0,
+    max_bar_rise: float = 10000.0,
 ) -> None:
-    if bar_radius <= 0.0 or radius <= 0.0:
+    if diameter <= 0.0 or radius <= 0.0 or spacing <= 0.0:
+        return
+    if z_end <= z_start:
         return
 
-    if radius <= bar_radius:
-        raise RuntimeError(
-            f"Cannot create circular bar. Ring radius {radius} must be larger than bar radius {bar_radius}."
-        )
-
-    profile = AllplanGeo.Arc3D(
-        AllplanGeo.Point3D(cx + radius, cy, z),
-        AllplanGeo.Vector3D(1.0, 0.0, 0.0),
-        AllplanGeo.Vector3D(0.0, 1.0, 0.0),
-        bar_radius,
-        bar_radius,
+    contour = AllplanGeo.Polyline3D()
+    contour += AllplanGeo.Point3D(cx + radius, cy, z_start)
+    contour += AllplanGeo.Point3D(cx + radius, cy, z_end)
+    rotation_axis = AllplanGeo.Line3D(
+        AllplanGeo.Point3D(cx, cy, z_start),
+        AllplanGeo.Point3D(cx, cy, z_start + 1.0),
+    )
+    circular_area = AllplanReinf.CircularAreaElement(
+        position_number,
+        diameter,
+        -1,
+        -1,
+        rotation_axis,
+        contour,
+        start_angle,
+        end_angle,
+        start_angle,
+        end_angle,
         0.0,
-        2.0 * math.pi,
+        0.0,
+        0.0,
     )
-
-    axis = AllplanGeo.Axis3D(
-        AllplanGeo.Point3D(cx, cy, z),
-        AllplanGeo.Vector3D(0.0, 0.0, 1.0),
-    )
-
-    error_code, ring_brep = AllplanGeo.CreateRevolvedBRep3D(
-        [profile],
-        axis,
-        AllplanGeo.Angle(),
-        True,
+    circular_area.SetBarProperties(
+        spacing,
+        max_bar_length,
+        min_bar_length,
         0,
+        max_bar_length,
+        max_bar_length,
+        0.0,
+        max_bar_rise,
     )
-
-    if ring_brep is None or error_code != AllplanGeo.eOK:
-        raise RuntimeError(f"Could not create revolved circular bar. Allplan error code: {error_code}")
-
-    elements.append_geometry_3d(ring_brep)
+    circular_area.SetOverlap(
+        0.0,
+        0.0,
+        False,
+        0.0,
+        0.0,
+        False,
+        50.0 * diameter,
+    )
+    elements.append(circular_area)
 
 
 def append_untrimmed_radial_bar(
