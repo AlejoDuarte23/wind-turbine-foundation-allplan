@@ -30,10 +30,25 @@ class Parametrization(vkt.Parametrization):
 
     reinforcement = vkt.Section("Reinforcement", initially_expanded=True)
     reinforcement.cover = vkt.NumberField("Concrete cover", default=75.0, min=25.0, max=200.0, suffix="mm", flex=50)
+    reinforcement.use_symmetric_radial_bars = vkt.BooleanField("Use same top and bottom radial bars", default=True, flex=100)
     reinforcement.top_radial_bar_diameter = vkt.NumberField("Top radial bar diameter", default=25.0, min=8.0, suffix="mm", flex=50)
     reinforcement.top_radial_bar_count = vkt.NumberField("Top radial bar count", default=32, min=8, max=96, flex=50)
-    reinforcement.bottom_radial_bar_diameter = vkt.NumberField("Bottom radial bar diameter", default=25.0, min=8.0, suffix="mm", flex=50)
-    reinforcement.bottom_radial_bar_count = vkt.NumberField("Bottom radial bar count", default=32, min=8, max=96, flex=50)
+    reinforcement.bottom_radial_bar_diameter = vkt.NumberField(
+        "Bottom radial bar diameter",
+        default=25.0,
+        min=8.0,
+        suffix="mm",
+        flex=50,
+        visible=vkt.IsFalse(vkt.Lookup("reinforcement.use_symmetric_radial_bars")),
+    )
+    reinforcement.bottom_radial_bar_count = vkt.NumberField(
+        "Bottom radial bar count",
+        default=32,
+        min=8,
+        max=96,
+        flex=50,
+        visible=vkt.IsFalse(vkt.Lookup("reinforcement.use_symmetric_radial_bars")),
+    )
     reinforcement.ring_bar_diameter = vkt.NumberField("Circular base bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
     reinforcement.ring_spacing = vkt.NumberField("Circular base bar spacing", default=550.0, min=150.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_bar_diameter = vkt.NumberField("Pedestal grid bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
@@ -123,6 +138,19 @@ class Controller(vkt.Controller):
         pile_ring_radius = min(float(params.geometry.pile_ring_radius), max_pile_ring_radius)
         edge_thickness = float(params.geometry.foundation_edge_thickness)
         center_thickness = max(float(params.geometry.foundation_center_thickness), edge_thickness)
+        use_symmetric_radial_bars = bool(params.reinforcement.use_symmetric_radial_bars)
+        top_radial_bar_diameter = float(params.reinforcement.top_radial_bar_diameter)
+        top_radial_bar_count = int(params.reinforcement.top_radial_bar_count)
+        bottom_radial_bar_diameter = (
+            top_radial_bar_diameter
+            if use_symmetric_radial_bars
+            else float(params.reinforcement.bottom_radial_bar_diameter)
+        )
+        bottom_radial_bar_count = (
+            top_radial_bar_count
+            if use_symmetric_radial_bars
+            else int(params.reinforcement.bottom_radial_bar_count)
+        )
 
         return {
             "foundation_diameter": foundation_diameter,
@@ -136,10 +164,11 @@ class Controller(vkt.Controller):
             "pile_depth": float(params.geometry.pile_depth),
             "pile_centers": cls.get_pile_centers(int(params.geometry.pile_count), pile_ring_radius),
             "cover": cover,
-            "top_radial_bar_diameter": float(params.reinforcement.top_radial_bar_diameter),
-            "top_radial_bar_count": int(params.reinforcement.top_radial_bar_count),
-            "bottom_radial_bar_diameter": float(params.reinforcement.bottom_radial_bar_diameter),
-            "bottom_radial_bar_count": int(params.reinforcement.bottom_radial_bar_count),
+            "use_symmetric_radial_bars": use_symmetric_radial_bars,
+            "top_radial_bar_diameter": top_radial_bar_diameter,
+            "top_radial_bar_count": top_radial_bar_count,
+            "bottom_radial_bar_diameter": bottom_radial_bar_diameter,
+            "bottom_radial_bar_count": bottom_radial_bar_count,
             "ring_bar_diameter": float(params.reinforcement.ring_bar_diameter),
             "ring_spacing": float(params.reinforcement.ring_spacing),
             "pedestal_grid_bar_diameter": float(params.reinforcement.pedestal_grid_bar_diameter),
