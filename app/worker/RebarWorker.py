@@ -6,6 +6,7 @@ from pathlib import Path
 import NemAll_Python_BaseElements as AllplanBaseElements
 import NemAll_Python_Geometry as AllplanGeo
 import NemAll_Python_Reinforcement as AllplanReinf
+import NemAll_Python_Utility as AllplanUtil
 import StdReinfShapeBuilder.GeneralReinfShapeBuilder as GeneralShapeBuilder
 from CreateElementResult import CreateElementResult
 from StdReinfShapeBuilder.ConcreteCoverProperties import ConcreteCoverProperties
@@ -261,17 +262,43 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
 def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
     pedestal_radius = data["pedestal_diameter"] / 2.0
     clear_radius = max(0.0, pedestal_radius - data["cover"])
-    bar_radius = data["pedestal_grid_bar_diameter"] / 2.0
+    bar_diameter = data["pedestal_grid_bar_diameter"]
     z_bottom = data["foundation_center_thickness"] + data["cover"]
     z_top = data["foundation_center_thickness"] + data["pedestal_height"] - data["cover"]
+    steel_grade = data.get("steel_grade", -1)
+    concrete_grade = data.get("concrete_grade", -1)
 
-    for x in positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"]):
+    for frame_index, x in enumerate(positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"])):
         y_half = math.sqrt(max(0.0, clear_radius * clear_radius - x * x))
-        append_vertical_rect_frame_y(elements, bar_radius, x, -y_half, y_half, z_bottom, z_top)
+        append_pedestal_rectangular_frame(
+            elements=elements,
+            position_number=8000 + frame_index,
+            diameter=bar_diameter,
+            points=[
+                AllplanGeo.Point3D(x, -y_half, z_bottom),
+                AllplanGeo.Point3D(x, y_half, z_bottom),
+                AllplanGeo.Point3D(x, y_half, z_top),
+                AllplanGeo.Point3D(x, -y_half, z_top),
+            ],
+            steel_grade=steel_grade,
+            concrete_grade=concrete_grade,
+        )
 
-    for y in positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"]):
+    for frame_index, y in enumerate(positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"])):
         x_half = math.sqrt(max(0.0, clear_radius * clear_radius - y * y))
-        append_vertical_rect_frame_x(elements, bar_radius, -x_half, x_half, y, z_bottom, z_top)
+        append_pedestal_rectangular_frame(
+            elements=elements,
+            position_number=9000 + frame_index,
+            diameter=bar_diameter,
+            points=[
+                AllplanGeo.Point3D(-x_half, y, z_bottom),
+                AllplanGeo.Point3D(x_half, y, z_bottom),
+                AllplanGeo.Point3D(x_half, y, z_top),
+                AllplanGeo.Point3D(-x_half, y, z_top),
+            ],
+            steel_grade=steel_grade,
+            concrete_grade=concrete_grade,
+        )
 
     append_vertical_circular_rebar_stack(
         elements=elements,
@@ -405,76 +432,85 @@ def append_vertical_conical_frustum(
     elements.append_geometry_3d(frustum)
 
 
-def append_cylinder_x(elements: ModelEleList, radius: float, x_min: float, x_max: float, y: float, z: float) -> None:
-    if x_max <= x_min:
-        return
-
-    placement = AllplanGeo.AxisPlacement3D(
-        AllplanGeo.Point3D(x_min, y, z),
-        AllplanGeo.Vector3D(0.0, 1.0, 0.0),
-        AllplanGeo.Vector3D(1.0, 0.0, 0.0),
-    )
-    elements.append_geometry_3d(AllplanGeo.BRep3D.CreateCylinder(placement, radius, x_max - x_min))
-
-
-def append_cylinder_y(elements: ModelEleList, radius: float, x: float, y_min: float, y_max: float, z: float) -> None:
-    if y_max <= y_min:
-        return
-
-    placement = AllplanGeo.AxisPlacement3D(
-        AllplanGeo.Point3D(x, y_min, z),
-        AllplanGeo.Vector3D(1.0, 0.0, 0.0),
-        AllplanGeo.Vector3D(0.0, 1.0, 0.0),
-    )
-    elements.append_geometry_3d(AllplanGeo.BRep3D.CreateCylinder(placement, radius, y_max - y_min))
-
-
-def append_cylinder_z(elements: ModelEleList, radius: float, x: float, y: float, z_min: float, z_max: float) -> None:
-    if z_max <= z_min:
-        return
-
-    placement = AllplanGeo.AxisPlacement3D(
-        AllplanGeo.Point3D(x, y, z_min),
-        AllplanGeo.Vector3D(1.0, 0.0, 0.0),
-        AllplanGeo.Vector3D(0.0, 0.0, 1.0),
-    )
-    elements.append_geometry_3d(AllplanGeo.BRep3D.CreateCylinder(placement, radius, z_max - z_min))
-
-
-def append_vertical_rect_frame_y(
+def append_pedestal_rectangular_frame(
     elements: ModelEleList,
-    radius: float,
-    x: float,
-    y_min: float,
-    y_max: float,
-    z_bottom: float,
-    z_top: float,
+    position_number: int,
+    diameter: float,
+    points: list[AllplanGeo.Point3D],
+    steel_grade: int = -1,
+    concrete_grade: int = -1,
 ) -> None:
-    if y_max <= y_min or z_top <= z_bottom:
+    shape = create_world_rectangular_stirrup_shape(
+        diameter=diameter,
+        points=points,
+        steel_grade=steel_grade,
+        concrete_grade=concrete_grade,
+    )
+    if shape is None:
         return
 
-    append_cylinder_y(elements, radius, x, y_min, y_max, z_bottom)
-    append_cylinder_y(elements, radius, x, y_min, y_max, z_top)
-    append_cylinder_z(elements, radius, x, y_min, z_bottom, z_top)
-    append_cylinder_z(elements, radius, x, y_max, z_bottom, z_top)
+    placement = AllplanReinf.BarPlacement(
+        position_number,
+        1,
+        AllplanGeo.Vector3D(),
+        AllplanGeo.Point3D(),
+        AllplanGeo.Point3D(),
+        shape,
+    )
+
+    elements.append(placement)
 
 
-def append_vertical_rect_frame_x(
-    elements: ModelEleList,
-    radius: float,
-    x_min: float,
-    x_max: float,
-    y: float,
-    z_bottom: float,
-    z_top: float,
-) -> None:
-    if x_max <= x_min or z_top <= z_bottom:
-        return
+def create_world_rectangular_stirrup_shape(
+    diameter: float,
+    points: list[AllplanGeo.Point3D],
+    steel_grade: int = -1,
+    concrete_grade: int = -1,
+):
+    if diameter <= 0.0:
+        raise RuntimeError("Pedestal rectangular frame diameter must be greater than zero.")
 
-    append_cylinder_x(elements, radius, x_min, x_max, y, z_bottom)
-    append_cylinder_x(elements, radius, x_min, x_max, y, z_top)
-    append_cylinder_z(elements, radius, x_min, y, z_bottom, z_top)
-    append_cylinder_z(elements, radius, x_max, y, z_bottom, z_top)
+    if len(points) != 4:
+        raise RuntimeError("Pedestal rectangular frame requires exactly four corner points.")
+
+    for start_point, end_point in zip(points, points[1:] + points[:1]):
+        if point_distance(start_point, end_point) <= 0.001:
+            return None
+
+    shape_polyline = AllplanGeo.Polyline3D()
+    for point in points + [points[0]]:
+        shape_polyline += point
+
+    bending_roller_factor = AllplanReinf.BendingRollerService.GetBendingRollerFactor(
+        diameter,
+        steel_grade,
+        concrete_grade,
+        True,
+    )
+    bending_roller = AllplanUtil.VecDoubleList([bending_roller_factor] * 5)
+    bending_shape = AllplanReinf.BendingShape(
+        shape_polyline,
+        bending_roller,
+        diameter,
+        steel_grade,
+        concrete_grade,
+        AllplanReinf.BendingShapeType.Stirrup,
+    )
+
+    try:
+        if not bending_shape.IsValid():
+            raise RuntimeError("Created pedestal rectangular frame shape is invalid.")
+    except AttributeError:
+        pass
+
+    return bending_shape
+
+
+def point_distance(left: AllplanGeo.Point3D, right: AllplanGeo.Point3D) -> float:
+    dx = right.X - left.X
+    dy = right.Y - left.Y
+    dz = right.Z - left.Z
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
 
 
 def append_circular_rebar_area(
