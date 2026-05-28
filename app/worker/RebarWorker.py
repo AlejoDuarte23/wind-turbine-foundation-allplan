@@ -10,6 +10,7 @@ import StdReinfShapeBuilder.GeneralReinfShapeBuilder as GeneralShapeBuilder
 from CreateElementResult import CreateElementResult
 from StdReinfShapeBuilder.ConcreteCoverProperties import ConcreteCoverProperties
 from StdReinfShapeBuilder.ReinforcementShapeProperties import ReinforcementShapeProperties
+from StdReinfShapeBuilder.RotationAngles import RotationAngles
 from TypeCollections.Curve3DList import Curve3DList
 from TypeCollections.ModelEleList import ModelEleList
 
@@ -217,29 +218,35 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
         spacing=data["ring_spacing"],
     )
 
-    bottom_bar_radius = data["bottom_radial_bar_diameter"] / 2.0
+    # Bottom radial bars: real straight Allplan reinforcement.
+    # Full bars, no pile trimming.
     for index in range(data["bottom_radial_bar_count"]):
         angle = 2.0 * math.pi * index / data["bottom_radial_bar_count"]
-        append_untrimmed_radial_bar(
+        append_real_radial_rebar(
             elements=elements,
-            bar_radius=bottom_bar_radius,
+            position_number=6100 + index,
+            diameter=data["bottom_radial_bar_diameter"],
             angle=angle,
-            r_start=bottom_inner_radius,
-            r_end=outer_radius,
-            z_at_radius=lambda radius: cover,
+            radii_and_z=[
+                (bottom_inner_radius, cover),
+                (outer_radius, cover),
+            ],
         )
 
-    top_bar_radius = data["top_radial_bar_diameter"] / 2.0
+    # Top radial bars: real freeform Allplan reinforcement.
+    # The bar follows the top cover line: flat near the pedestal, then sloped to the edge.
     for index in range(data["top_radial_bar_count"]):
         angle = 2.0 * math.pi * index / data["top_radial_bar_count"]
-        append_untrimmed_radial_bar(
+        append_real_radial_rebar(
             elements=elements,
-            bar_radius=top_bar_radius,
+            position_number=7100 + index,
+            diameter=data["top_radial_bar_diameter"],
             angle=angle,
-            r_start=top_inner_radius,
-            r_end=outer_radius,
-            z_at_radius=lambda radius: foundation_top_z(data, radius) - cover,
-            split_radii=[pedestal_radius],
+            radii_and_z=top_radial_rebar_profile(
+                data=data,
+                r_start=top_inner_radius,
+                r_end=outer_radius,
+            ),
         )
 
 
@@ -272,44 +279,28 @@ def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
 
 
 def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
-    pile_radius = data["pile_diameter"] / 2.0
-    cover = data["cover"]
-    vertical_diameter = data["pile_vertical_diameter"]
-    hoop_diameter = data["pile_hoop_diameter"]
-    vertical_axis_radius = pile_radius - cover - vertical_diameter / 2.0
-    hoop_axis_radius = pile_radius - cover - hoop_diameter / 2.0
-    if vertical_axis_radius <= 0.0:
+    radius = data["pile_diameter"] / 2.0 - data["cover"]
+    if radius <= 0.0:
         return
 
-    z_min = -data["pile_depth"] + cover
+    z_min = -data["pile_depth"]
+    vertical_radius = data["pile_vertical_diameter"] / 2.0
+    hoop_radius = data["pile_hoop_diameter"] / 2.0
 
-    for pile_index, pile in enumerate(data["pile_centers"]):
+    for pile in data["pile_centers"]:
         cx = pile["x"]
         cy = pile["y"]
-        for bar_index in range(data["pile_vertical_count"]):
-            angle = 2.0 * math.pi * bar_index / data["pile_vertical_count"]
-            x = cx + vertical_axis_radius * math.cos(angle)
-            y = cy + vertical_axis_radius * math.sin(angle)
+        pile_distance = math.hypot(cx, cy)
+        z_max = pile_rebar_extension(data, pile_distance)
 
-            append_single_straight_rebar(
-                elements=elements,
-                position_number=401 + pile_index * data["pile_vertical_count"] + bar_index,
-                diameter=vertical_diameter,
-                start_point=AllplanGeo.Point3D(x, y, z_min),
-                end_point=AllplanGeo.Point3D(x, y, 0.0),
-            )
+        for index in range(data["pile_vertical_count"]):
+            angle = 2.0 * math.pi * index / data["pile_vertical_count"]
+            x = cx + radius * math.cos(angle)
+            y = cy + radius * math.sin(angle)
+            append_cylinder_z(elements, vertical_radius, x, y, z_min, z_max)
 
-        append_vertical_circular_rebar_stack(
-            elements=elements,
-            position_number=501 + pile_index,
-            diameter=hoop_diameter,
-            cx=cx,
-            cy=cy,
-            radius=hoop_axis_radius,
-            z_start=z_min,
-            z_end=0.0,
-            spacing=data["pile_hoop_spacing"],
-        )
+        for z in positions_between(z_min, 0.0, data["pile_hoop_spacing"]):
+            append_ring(elements, hoop_radius, cx, cy, radius, z, segments=20)
 
 
 def append_vertical_cylinder(elements: ModelEleList, radius: float, z_min: float, height: float, cx: float = 0.0, cy: float = 0.0) -> None:
@@ -585,23 +576,52 @@ def append_vertical_circular_rebar_stack(
     elements.append(circular_area)
 
 
-def append_single_straight_rebar(
+def append_real_radial_rebar(
     elements: ModelEleList,
     position_number: int,
     diameter: float,
-    start_point: AllplanGeo.Point3D,
-    end_point: AllplanGeo.Point3D,
+    angle: float,
+    radii_and_z: list[tuple[float, float]],
 ) -> None:
     if diameter <= 0.0:
         return
-    if points_are_equal(start_point, end_point):
+
+    coords = []
+    for radius, z in radii_and_z:
+        if radius <= 0.0:
+            continue
+        coords.append(radial_point(angle, float(radius), float(z)))
+
+    append_single_real_rebar_polyline(
+        elements=elements,
+        position_number=position_number,
+        diameter=diameter,
+        coords=coords,
+    )
+
+
+def append_single_real_rebar_polyline(
+    elements: ModelEleList,
+    position_number: int,
+    diameter: float,
+    coords: list[tuple[float, float, float]],
+) -> None:
+    points = clean_rebar_points(coords)
+
+    if len(points) < 2:
         return
 
-    bending_shape = create_straight_rebar_shape(
-        diameter=diameter,
-        start_point=start_point,
-        end_point=end_point,
-    )
+    if len(points) == 2:
+        bending_shape = create_straight_rebar_shape_from_points(
+            diameter=diameter,
+            start_point=points[0],
+            end_point=points[1],
+        )
+    else:
+        bending_shape = create_freeform_rebar_shape_from_points(
+            diameter=diameter,
+            points=points,
+        )
 
     placement = AllplanReinf.BarPlacement(
         position_number,
@@ -614,14 +634,11 @@ def append_single_straight_rebar(
     elements.append(placement)
 
 
-def create_straight_rebar_shape(
+def create_straight_rebar_shape_from_points(
     diameter: float,
     start_point: AllplanGeo.Point3D,
     end_point: AllplanGeo.Point3D,
 ):
-    if diameter <= 0.0:
-        raise RuntimeError("Rebar diameter must be greater than zero.")
-
     shape_properties = ReinforcementShapeProperties.rebar(
         diameter=diameter,
         bending_roller=-1,
@@ -629,50 +646,123 @@ def create_straight_rebar_shape(
         concrete_grade=-1,
         bending_shape_type=AllplanReinf.BendingShapeType.LongitudinalBar,
     )
-    zero_cover = ConcreteCoverProperties.all(0.0)
+
     return GeneralShapeBuilder.create_longitudinal_shape_with_anchorage(
         from_point=start_point,
         to_point=end_point,
         shape_props=shape_properties,
-        concrete_cover_props=zero_cover,
+        concrete_cover_props=ConcreteCoverProperties.all(0.0),
         start_anchorage=0.0,
         end_anchorage=0.0,
     )
 
 
-def points_are_equal(left: AllplanGeo.Point3D, right: AllplanGeo.Point3D, tolerance: float = 0.001) -> bool:
-    dx = left.X - right.X
-    dy = left.Y - right.Y
-    dz = left.Z - right.Z
-    return math.sqrt(dx * dx + dy * dy + dz * dz) <= tolerance
+def create_freeform_rebar_shape_from_points(
+    diameter: float,
+    points: list[AllplanGeo.Point3D],
+):
+    shape_properties = ReinforcementShapeProperties.rebar(
+        diameter=diameter,
+        bending_roller=-1,
+        steel_grade=-1,
+        concrete_grade=-1,
+        bending_shape_type=AllplanReinf.BendingShapeType.Freeform,
+    )
+
+    return GeneralShapeBuilder.create_freeform_shape_with_hooks(
+        points=points,
+        model_angles=RotationAngles(0.0, 0.0, 0.0),
+        shape_props=shape_properties,
+        concrete_cover=0.0,
+        start_hook=-1.0,
+        end_hook=-1.0,
+    )
 
 
-def append_untrimmed_radial_bar(
-    elements: ModelEleList,
-    bar_radius: float,
-    angle: float,
+def top_radial_rebar_profile(
+    data: dict,
     r_start: float,
     r_end: float,
-    z_at_radius,
-    split_radii: list[float] | None = None,
-) -> None:
-    if r_end <= r_start:
-        return
+) -> list[tuple[float, float]]:
+    cover = data["cover"]
+    pedestal_radius = data["pedestal_diameter"] / 2.0
 
-    radii = [r_start]
+    profile = [
+        (r_start, foundation_top_z(data, r_start) - cover),
+    ]
 
-    if split_radii:
-        for split_radius in split_radii:
-            if r_start < split_radius < r_end:
-                radii.append(split_radius)
+    if r_start < pedestal_radius < r_end:
+        profile.append(
+            (pedestal_radius, foundation_top_z(data, pedestal_radius) - cover)
+        )
 
-    radii.append(r_end)
-    radii = sorted(set(radii))
+    profile.append(
+        (r_end, foundation_top_z(data, r_end) - cover)
+    )
 
-    for start_radius, end_radius in zip(radii, radii[1:]):
-        start_point = radial_point(angle, start_radius, z_at_radius(start_radius))
-        end_point = radial_point(angle, end_radius, z_at_radius(end_radius))
-        append_cylinder_between(elements, bar_radius, start_point, end_point)
+    return remove_duplicate_radius_z(profile)
+
+
+def remove_duplicate_radius_z(
+    profile: list[tuple[float, float]],
+    tolerance: float = 0.001,
+) -> list[tuple[float, float]]:
+    clean_profile = []
+
+    for radius, z in profile:
+        radius = float(radius)
+        z = float(z)
+
+        if not clean_profile:
+            clean_profile.append((radius, z))
+            continue
+
+        previous_radius, previous_z = clean_profile[-1]
+
+        if abs(radius - previous_radius) > tolerance or abs(z - previous_z) > tolerance:
+            clean_profile.append((radius, z))
+
+    return clean_profile
+
+
+def clean_rebar_points(
+    coords: list[tuple[float, float, float]],
+    tolerance: float = 0.001,
+) -> list[AllplanGeo.Point3D]:
+    clean_points = []
+    previous = None
+
+    for x, y, z in coords:
+        current = (float(x), float(y), float(z))
+
+        if previous is None:
+            clean_points.append(AllplanGeo.Point3D(current[0], current[1], current[2]))
+            previous = current
+            continue
+
+        dx = current[0] - previous[0]
+        dy = current[1] - previous[1]
+        dz = current[2] - previous[2]
+        distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+        if distance > tolerance:
+            clean_points.append(AllplanGeo.Point3D(current[0], current[1], current[2]))
+            previous = current
+
+    return clean_points
+
+
+def append_ring(elements: ModelEleList, bar_radius: float, cx: float, cy: float, radius: float, z: float, segments: int = 72) -> None:
+    points = []
+    for index in range(segments + 1):
+        angle = 2.0 * math.pi * index / segments
+        points.append((cx + radius * math.cos(angle), cy + radius * math.sin(angle), z))
+    append_polyline_cylinders(elements, bar_radius, points)
+
+
+def append_polyline_cylinders(elements: ModelEleList, radius: float, points: list[tuple[float, float, float]]) -> None:
+    for start, end in zip(points, points[1:]):
+        append_cylinder_between(elements, radius, start, end)
 
 
 def append_cylinder_between(elements: ModelEleList, radius: float, start: tuple[float, float, float], end: tuple[float, float, float]) -> None:
@@ -761,7 +851,7 @@ def build_result(data: dict, run_id: str) -> dict:
     outer_radius = max(0.0, foundation_radius - cover)
     ring_count = len(radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]))
     top_ring_count = len(radii_between(max(cover, pedestal_radius * 0.35), outer_radius, data["ring_spacing"]))
-    pile_hoop_count = len(positions_between(-data["pile_depth"] + cover, 0.0, data["pile_hoop_spacing"]))
+    pile_hoop_count = len(positions_between(-data["pile_depth"], 0.0, data["pile_hoop_spacing"]))
     pedestal_clear_radius = max(0.0, pedestal_radius - cover)
     pedestal_frame_count = len(positions_between(-pedestal_clear_radius, pedestal_clear_radius, data["pedestal_grid_spacing"]))
     pedestal_tie_count = len(
@@ -787,13 +877,12 @@ def build_result(data: dict, run_id: str) -> dict:
             "piles": len(data["pile_centers"]),
             "base_ring_bars": ring_count,
             "top_cap_ring_bars": top_ring_count,
-            "top_radial_bars_before_trimming": data["top_radial_bar_count"],
-            "bottom_radial_bars_before_trimming": data["bottom_radial_bar_count"],
+            "top_real_radial_bars": data["top_radial_bar_count"],
+            "bottom_real_radial_bars": data["bottom_radial_bar_count"],
             "pedestal_rectangular_frames": 2 * pedestal_frame_count,
             "pedestal_circular_ties": pedestal_tie_count,
-            "pile_real_vertical_bar_placements": len(data["pile_centers"]),
-            "pile_real_vertical_bars": len(data["pile_centers"]) * data["pile_vertical_count"],
-            "pile_real_hoops": len(data["pile_centers"]) * pile_hoop_count,
+            "pile_visual_vertical_bars": len(data["pile_centers"]) * data["pile_vertical_count"],
+            "pile_visual_hoops": len(data["pile_centers"]) * pile_hoop_count,
         },
         "inputs": data,
     }
