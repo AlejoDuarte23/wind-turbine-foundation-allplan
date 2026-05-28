@@ -6,10 +6,8 @@ from pathlib import Path
 import NemAll_Python_BaseElements as AllplanBaseElements
 import NemAll_Python_Geometry as AllplanGeo
 import NemAll_Python_Reinforcement as AllplanReinf
-import StdReinfShapeBuilder.GeneralReinfShapeBuilder as GeneralShapeBuilder
+import NemAll_Python_Utility as AllplanUtil
 from CreateElementResult import CreateElementResult
-from StdReinfShapeBuilder.ConcreteCoverProperties import ConcreteCoverProperties
-from StdReinfShapeBuilder.ReinforcementShapeProperties import ReinforcementShapeProperties
 from TypeCollections.Curve3DList import Curve3DList
 from TypeCollections.ModelEleList import ModelEleList
 
@@ -624,13 +622,9 @@ def append_single_real_rebar_polyline(
     if len(points) < 2:
         return
 
-    if len(points) != 2:
-        return
-
-    bending_shape = create_straight_rebar_shape_from_points(
+    bending_shape = create_world_polyline_rebar_shape(
         diameter=diameter,
-        start_point=points[0],
-        end_point=points[1],
+        points=points,
     )
 
     placement = AllplanReinf.BarPlacement(
@@ -649,22 +643,68 @@ def create_straight_rebar_shape_from_points(
     start_point: AllplanGeo.Point3D,
     end_point: AllplanGeo.Point3D,
 ):
-    shape_properties = ReinforcementShapeProperties.rebar(
+    return create_world_polyline_rebar_shape(
         diameter=diameter,
-        bending_roller=-1,
-        steel_grade=-1,
-        concrete_grade=-1,
-        bending_shape_type=AllplanReinf.BendingShapeType.LongitudinalBar,
+        points=[start_point, end_point],
     )
 
-    return GeneralShapeBuilder.create_longitudinal_shape_with_anchorage(
-        from_point=start_point,
-        to_point=end_point,
-        shape_props=shape_properties,
-        concrete_cover_props=ConcreteCoverProperties.all(0.0),
-        start_anchorage=0.0,
-        end_anchorage=0.0,
+
+def create_freeform_rebar_shape_from_points(
+    diameter: float,
+    points: list[AllplanGeo.Point3D],
+):
+    return create_world_polyline_rebar_shape(
+        diameter=diameter,
+        points=points,
     )
+
+
+def create_world_polyline_rebar_shape(
+    diameter: float,
+    points: list[AllplanGeo.Point3D],
+):
+    if diameter <= 0.0:
+        raise RuntimeError("Rebar diameter must be greater than zero.")
+
+    if len(points) < 2:
+        raise RuntimeError("At least two points are required to create a rebar shape.")
+
+    shape_polyline = AllplanGeo.Polyline3D()
+    for point in points:
+        shape_polyline += point
+
+    has_z_slope = any(
+        abs(points[index].Z - points[index - 1].Z) > 0.001
+        for index in range(1, len(points))
+    )
+
+    bending_shape_type = (
+        AllplanReinf.BendingShapeType.Freeform
+        if has_z_slope or len(points) > 2
+        else AllplanReinf.BendingShapeType.LongitudinalBar
+    )
+
+    bending_roller = AllplanUtil.VecDoubleList([0.0] * max(2, len(points)))
+
+    bending_shape = AllplanReinf.BendingShape(
+        shape_polyline,
+        bending_roller,
+        diameter,
+        -1,
+        -1,
+        bending_shape_type,
+    )
+
+    try:
+        if not bending_shape.IsValid():
+            raise RuntimeError(
+                f"Invalid rebar bending shape. Type={bending_shape_type}, "
+                f"diameter={diameter}, point_count={len(points)}"
+            )
+    except AttributeError:
+        pass
+
+    return bending_shape
 
 
 def clean_rebar_points(
