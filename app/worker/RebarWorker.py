@@ -233,21 +233,26 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
             ],
         )
 
-    # Top radial bars: real freeform Allplan reinforcement.
-    # The bar follows the top cover line: flat near the pedestal, then sloped to the edge.
+    # Top radial bars: real straight Allplan reinforcement.
+    # Split into straight pieces instead of using Freeform, because the freeform shape
+    # can silently fail to display in Allplan.
     for index in range(data["top_radial_bar_count"]):
         angle = 2.0 * math.pi * index / data["top_radial_bar_count"]
-        append_real_radial_rebar(
-            elements=elements,
-            position_number=7100 + index,
-            diameter=data["top_radial_bar_diameter"],
-            angle=angle,
-            radii_and_z=top_radial_rebar_profile(
+
+        for segment_index, segment in enumerate(
+            top_radial_rebar_straight_segments(
                 data=data,
                 r_start=top_inner_radius,
                 r_end=outer_radius,
-            ),
-        )
+            )
+        ):
+            append_real_radial_rebar(
+                elements=elements,
+                position_number=7100 + index * 10 + segment_index,
+                diameter=data["top_radial_bar_diameter"],
+                angle=angle,
+                radii_and_z=segment,
+            )
 
 
 def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
@@ -701,6 +706,48 @@ def top_radial_rebar_profile(
     )
 
     return remove_duplicate_radius_z(profile)
+
+
+def top_radial_rebar_straight_segments(
+    data: dict,
+    r_start: float,
+    r_end: float,
+) -> list[list[tuple[float, float]]]:
+    if r_end <= r_start:
+        return []
+
+    cover = data["cover"]
+    pedestal_radius = data["pedestal_diameter"] / 2.0
+
+    start = (r_start, foundation_top_z(data, r_start) - cover)
+    end = (r_end, foundation_top_z(data, r_end) - cover)
+
+    if r_start < pedestal_radius < r_end:
+        middle = (
+            pedestal_radius,
+            foundation_top_z(data, pedestal_radius) - cover,
+        )
+
+        segments = []
+
+        if radius_z_distance(start, middle) > 1.0:
+            segments.append([start, middle])
+
+        if radius_z_distance(middle, end) > 1.0:
+            segments.append([middle, end])
+
+        return segments
+
+    return [[start, end]]
+
+
+def radius_z_distance(
+    first: tuple[float, float],
+    second: tuple[float, float],
+) -> float:
+    dr = second[0] - first[0]
+    dz = second[1] - first[1]
+    return math.sqrt(dr * dr + dz * dz)
 
 
 def remove_duplicate_radius_z(
