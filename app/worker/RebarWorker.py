@@ -6,8 +6,10 @@ from pathlib import Path
 import NemAll_Python_BaseElements as AllplanBaseElements
 import NemAll_Python_Geometry as AllplanGeo
 import NemAll_Python_Reinforcement as AllplanReinf
-import NemAll_Python_Utility as AllplanUtil
+import StdReinfShapeBuilder.GeneralReinfShapeBuilder as GeneralShapeBuilder
 from CreateElementResult import CreateElementResult
+from StdReinfShapeBuilder.ConcreteCoverProperties import ConcreteCoverProperties
+from StdReinfShapeBuilder.ReinforcementShapeProperties import ReinforcementShapeProperties
 from TypeCollections.Curve3DList import Curve3DList
 from TypeCollections.ModelEleList import ModelEleList
 
@@ -215,24 +217,20 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
         spacing=data["ring_spacing"],
     )
 
-    # Bottom radial bars: real straight Allplan reinforcement.
-    # Full bars, no pile trimming.
-    for index in range(data["bottom_radial_bar_count"]):
-        angle = 2.0 * math.pi * index / data["bottom_radial_bar_count"]
-        append_real_radial_rebar(
-            elements=elements,
-            position_number=6100 + index,
-            diameter=data["bottom_radial_bar_diameter"],
-            angle=angle,
-            radii_and_z=[
-                (bottom_inner_radius, cover),
-                (outer_radius, cover),
-            ],
-        )
+    # Bottom radial bars: one real rotational Allplan placement.
+    append_radial_rebar_set(
+        elements=elements,
+        position_number=6100,
+        diameter=data["bottom_radial_bar_diameter"],
+        r_start=bottom_inner_radius,
+        r_end=outer_radius,
+        z_start=cover,
+        z_end=cover,
+        bar_count=data["bottom_radial_bar_count"],
+    )
 
-    # Top radial bars: real straight inclined Allplan reinforcement.
-    # Start at the pedestal edge and end near the foundation edge.
-    # This avoids the old multi-point path and forces a visible inclined bar.
+    # Top radial bars: one real rotational Allplan placement.
+    # The seed bar is inclined in the XZ plane, then Allplan rotates it around Z.
     top_slope_start_radius = min(max(pedestal_radius + cover, top_inner_radius), outer_radius)
     top_slope_end_radius = outer_radius
 
@@ -240,25 +238,24 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
     top_slope_end_z = foundation_top_z(data, top_slope_end_radius) - cover
 
     _log(
-        "Top radial inclined bar profile: "
+        "Top radial rotational placement: "
         f"r_start={top_slope_start_radius:.2f}, "
         f"z_start={top_slope_start_z:.2f}, "
         f"r_end={top_slope_end_radius:.2f}, "
-        f"z_end={top_slope_end_z:.2f}"
+        f"z_end={top_slope_end_z:.2f}, "
+        f"count={data['top_radial_bar_count']}"
     )
 
-    for index in range(data["top_radial_bar_count"]):
-        angle = 2.0 * math.pi * index / data["top_radial_bar_count"]
-        append_real_radial_rebar(
-            elements=elements,
-            position_number=7100 + index,
-            diameter=data["top_radial_bar_diameter"],
-            angle=angle,
-            radii_and_z=[
-                (top_slope_start_radius, top_slope_start_z),
-                (top_slope_end_radius, top_slope_end_z),
-            ],
-        )
+    append_radial_rebar_set(
+        elements=elements,
+        position_number=7100,
+        diameter=data["top_radial_bar_diameter"],
+        r_start=top_slope_start_radius,
+        r_end=top_slope_end_radius,
+        z_start=top_slope_start_z,
+        z_end=top_slope_end_z,
+        bar_count=data["top_radial_bar_count"],
+    )
 
 
 def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
@@ -587,54 +584,49 @@ def append_vertical_circular_rebar_stack(
     elements.append(circular_area)
 
 
-def append_real_radial_rebar(
+def append_radial_rebar_set(
     elements: ModelEleList,
     position_number: int,
     diameter: float,
-    angle: float,
-    radii_and_z: list[tuple[float, float]],
+    r_start: float,
+    r_end: float,
+    z_start: float,
+    z_end: float,
+    bar_count: int,
 ) -> None:
     if diameter <= 0.0:
         return
 
-    coords = []
-    for radius, z in radii_and_z:
-        if radius <= 0.0:
-            continue
-        coords.append(radial_point(angle, float(radius), float(z)))
-
-    append_single_real_rebar_polyline(
-        elements=elements,
-        position_number=position_number,
-        diameter=diameter,
-        coords=coords,
-    )
-
-
-def append_single_real_rebar_polyline(
-    elements: ModelEleList,
-    position_number: int,
-    diameter: float,
-    coords: list[tuple[float, float, float]],
-) -> None:
-    points = clean_rebar_points(coords)
-
-    if len(points) < 2:
+    if bar_count <= 0:
         return
 
-    bending_shape = create_world_polyline_rebar_shape(
+    if r_end <= r_start:
+        return
+
+    start_point = AllplanGeo.Point3D(r_start, 0.0, z_start)
+    end_point = AllplanGeo.Point3D(r_end, 0.0, z_end)
+
+    bending_shape = create_straight_rebar_shape_from_points(
         diameter=diameter,
-        points=points,
+        start_point=start_point,
+        end_point=end_point,
     )
+
+    rotation_axis = AllplanGeo.Line3D(
+        AllplanGeo.Point3D(0.0, 0.0, 0.0),
+        AllplanGeo.Point3D(0.0, 0.0, 1.0),
+    )
+
+    rotation_angle = AllplanGeo.Angle.FromDeg(360.0 / float(bar_count))
 
     placement = AllplanReinf.BarPlacement(
         position_number,
-        1,
-        AllplanGeo.Vector3D(),
-        AllplanGeo.Point3D(),
-        AllplanGeo.Point3D(),
+        bar_count,
+        rotation_axis,
+        rotation_angle,
         bending_shape,
     )
+
     elements.append(placement)
 
 
@@ -643,95 +635,95 @@ def create_straight_rebar_shape_from_points(
     start_point: AllplanGeo.Point3D,
     end_point: AllplanGeo.Point3D,
 ):
-    return create_world_polyline_rebar_shape(
+    return create_oriented_straight_rebar_shape(
         diameter=diameter,
-        points=[start_point, end_point],
+        start_point=start_point,
+        end_point=end_point,
     )
 
 
-def create_freeform_rebar_shape_from_points(
+def create_oriented_straight_rebar_shape(
     diameter: float,
-    points: list[AllplanGeo.Point3D],
-):
-    return create_world_polyline_rebar_shape(
-        diameter=diameter,
-        points=points,
-    )
-
-
-def create_world_polyline_rebar_shape(
-    diameter: float,
-    points: list[AllplanGeo.Point3D],
+    start_point: AllplanGeo.Point3D,
+    end_point: AllplanGeo.Point3D,
 ):
     if diameter <= 0.0:
         raise RuntimeError("Rebar diameter must be greater than zero.")
 
-    if len(points) < 2:
-        raise RuntimeError("At least two points are required to create a rebar shape.")
+    dx = end_point.X - start_point.X
+    dy = end_point.Y - start_point.Y
+    dz = end_point.Z - start_point.Z
 
-    shape_polyline = AllplanGeo.Polyline3D()
-    for point in points:
-        shape_polyline += point
+    length = math.sqrt(dx * dx + dy * dy + dz * dz)
 
-    has_z_slope = any(
-        abs(points[index].Z - points[index - 1].Z) > 0.001
-        for index in range(1, len(points))
+    if length <= 0.001:
+        raise RuntimeError("Cannot create rebar with zero length.")
+
+    shape_properties = ReinforcementShapeProperties.rebar(
+        diameter=diameter,
+        bending_roller=-1,
+        steel_grade=-1,
+        concrete_grade=-1,
+        bending_shape_type=AllplanReinf.BendingShapeType.LongitudinalBar,
     )
 
-    bending_shape_type = (
-        AllplanReinf.BendingShapeType.Freeform
-        if has_z_slope or len(points) > 2
-        else AllplanReinf.BendingShapeType.LongitudinalBar
+    # Create the bar locally along +X.
+    bending_shape = GeneralShapeBuilder.create_longitudinal_shape_with_anchorage(
+        from_point=AllplanGeo.Point3D(0.0, 0.0, 0.0),
+        to_point=AllplanGeo.Point3D(length, 0.0, 0.0),
+        shape_props=shape_properties,
+        concrete_cover_props=ConcreteCoverProperties.all(0.0),
+        start_anchorage=0.0,
+        end_anchorage=0.0,
     )
 
-    bending_roller = AllplanUtil.VecDoubleList([0.0] * max(2, len(points)))
+    # Rotate local +X into the real 3D bar direction.
+    target_x = dx / length
+    target_y = dy / length
+    target_z = dz / length
 
-    bending_shape = AllplanReinf.BendingShape(
-        shape_polyline,
-        bending_roller,
-        diameter,
-        -1,
-        -1,
-        bending_shape_type,
+    already_local_x = (
+        abs(target_x - 1.0) <= 0.000001
+        and abs(target_y) <= 0.000001
+        and abs(target_z) <= 0.000001
+    )
+
+    if not already_local_x:
+        target_direction = AllplanGeo.Vector3D(
+            target_x,
+            target_y,
+            target_z,
+        )
+
+        rotation_matrix = AllplanGeo.Matrix3D()
+        rotation_ok = rotation_matrix.SetRotation(
+            AllplanGeo.Vector3D(1.0, 0.0, 0.0),
+            target_direction,
+        )
+
+        if not rotation_ok:
+            raise RuntimeError(
+                "Could not rotate radial rebar shape from local X axis to target direction."
+            )
+
+        bending_shape.Transform(rotation_matrix)
+
+    # Move the rotated bar to its real start point.
+    bending_shape.Move(
+        AllplanGeo.Vector3D(
+            start_point.X,
+            start_point.Y,
+            start_point.Z,
+        )
     )
 
     try:
         if not bending_shape.IsValid():
-            raise RuntimeError(
-                f"Invalid rebar bending shape. Type={bending_shape_type}, "
-                f"diameter={diameter}, point_count={len(points)}"
-            )
+            raise RuntimeError("Created radial rebar bending shape is invalid.")
     except AttributeError:
         pass
 
     return bending_shape
-
-
-def clean_rebar_points(
-    coords: list[tuple[float, float, float]],
-    tolerance: float = 0.001,
-) -> list[AllplanGeo.Point3D]:
-    clean_points = []
-    previous = None
-
-    for x, y, z in coords:
-        current = (float(x), float(y), float(z))
-
-        if previous is None:
-            clean_points.append(AllplanGeo.Point3D(current[0], current[1], current[2]))
-            previous = current
-            continue
-
-        dx = current[0] - previous[0]
-        dy = current[1] - previous[1]
-        dz = current[2] - previous[2]
-        distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-
-        if distance > tolerance:
-            clean_points.append(AllplanGeo.Point3D(current[0], current[1], current[2]))
-            previous = current
-
-    return clean_points
 
 
 def append_ring(elements: ModelEleList, bar_radius: float, cx: float, cy: float, radius: float, z: float, segments: int = 72) -> None:
@@ -783,10 +775,6 @@ def cross(left: tuple[float, float, float], right: tuple[float, float, float]) -
         left[2] * right[0] - left[0] * right[2],
         left[0] * right[1] - left[1] * right[0],
     )
-
-
-def radial_point(angle: float, radius: float, z: float) -> tuple[float, float, float]:
-    return (radius * math.cos(angle), radius * math.sin(angle), z)
 
 
 def foundation_top_z(data: dict, radius: float) -> float:
