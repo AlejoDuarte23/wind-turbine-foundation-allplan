@@ -10,7 +10,6 @@ import StdReinfShapeBuilder.GeneralReinfShapeBuilder as GeneralShapeBuilder
 from CreateElementResult import CreateElementResult
 from StdReinfShapeBuilder.ConcreteCoverProperties import ConcreteCoverProperties
 from StdReinfShapeBuilder.ReinforcementShapeProperties import ReinforcementShapeProperties
-from StdReinfShapeBuilder.RotationAngles import RotationAngles
 from TypeCollections.Curve3DList import Curve3DList
 from TypeCollections.ModelEleList import ModelEleList
 
@@ -233,26 +232,35 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
             ],
         )
 
-    # Top radial bars: real straight Allplan reinforcement.
-    # Split into straight pieces instead of using Freeform, because the freeform shape
-    # can silently fail to display in Allplan.
+    # Top radial bars: real straight inclined Allplan reinforcement.
+    # Start at the pedestal edge and end near the foundation edge.
+    # This avoids the old multi-point path and forces a visible inclined bar.
+    top_slope_start_radius = min(max(pedestal_radius + cover, top_inner_radius), outer_radius)
+    top_slope_end_radius = outer_radius
+
+    top_slope_start_z = foundation_top_z(data, top_slope_start_radius) - cover
+    top_slope_end_z = foundation_top_z(data, top_slope_end_radius) - cover
+
+    _log(
+        "Top radial inclined bar profile: "
+        f"r_start={top_slope_start_radius:.2f}, "
+        f"z_start={top_slope_start_z:.2f}, "
+        f"r_end={top_slope_end_radius:.2f}, "
+        f"z_end={top_slope_end_z:.2f}"
+    )
+
     for index in range(data["top_radial_bar_count"]):
         angle = 2.0 * math.pi * index / data["top_radial_bar_count"]
-
-        for segment_index, segment in enumerate(
-            top_radial_rebar_straight_segments(
-                data=data,
-                r_start=top_inner_radius,
-                r_end=outer_radius,
-            )
-        ):
-            append_real_radial_rebar(
-                elements=elements,
-                position_number=7100 + index * 10 + segment_index,
-                diameter=data["top_radial_bar_diameter"],
-                angle=angle,
-                radii_and_z=segment,
-            )
+        append_real_radial_rebar(
+            elements=elements,
+            position_number=7100 + index,
+            diameter=data["top_radial_bar_diameter"],
+            angle=angle,
+            radii_and_z=[
+                (top_slope_start_radius, top_slope_start_z),
+                (top_slope_end_radius, top_slope_end_z),
+            ],
+        )
 
 
 def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
@@ -616,17 +624,14 @@ def append_single_real_rebar_polyline(
     if len(points) < 2:
         return
 
-    if len(points) == 2:
-        bending_shape = create_straight_rebar_shape_from_points(
-            diameter=diameter,
-            start_point=points[0],
-            end_point=points[1],
-        )
-    else:
-        bending_shape = create_freeform_rebar_shape_from_points(
-            diameter=diameter,
-            points=points,
-        )
+    if len(points) != 2:
+        return
+
+    bending_shape = create_straight_rebar_shape_from_points(
+        diameter=diameter,
+        start_point=points[0],
+        end_point=points[1],
+    )
 
     placement = AllplanReinf.BarPlacement(
         position_number,
@@ -660,116 +665,6 @@ def create_straight_rebar_shape_from_points(
         start_anchorage=0.0,
         end_anchorage=0.0,
     )
-
-
-def create_freeform_rebar_shape_from_points(
-    diameter: float,
-    points: list[AllplanGeo.Point3D],
-):
-    shape_properties = ReinforcementShapeProperties.rebar(
-        diameter=diameter,
-        bending_roller=-1,
-        steel_grade=-1,
-        concrete_grade=-1,
-        bending_shape_type=AllplanReinf.BendingShapeType.Freeform,
-    )
-
-    return GeneralShapeBuilder.create_freeform_shape_with_hooks(
-        points=points,
-        model_angles=RotationAngles(0.0, 0.0, 0.0),
-        shape_props=shape_properties,
-        concrete_cover=0.0,
-        start_hook=-1.0,
-        end_hook=-1.0,
-    )
-
-
-def top_radial_rebar_profile(
-    data: dict,
-    r_start: float,
-    r_end: float,
-) -> list[tuple[float, float]]:
-    cover = data["cover"]
-    pedestal_radius = data["pedestal_diameter"] / 2.0
-
-    profile = [
-        (r_start, foundation_top_z(data, r_start) - cover),
-    ]
-
-    if r_start < pedestal_radius < r_end:
-        profile.append(
-            (pedestal_radius, foundation_top_z(data, pedestal_radius) - cover)
-        )
-
-    profile.append(
-        (r_end, foundation_top_z(data, r_end) - cover)
-    )
-
-    return remove_duplicate_radius_z(profile)
-
-
-def top_radial_rebar_straight_segments(
-    data: dict,
-    r_start: float,
-    r_end: float,
-) -> list[list[tuple[float, float]]]:
-    if r_end <= r_start:
-        return []
-
-    cover = data["cover"]
-    pedestal_radius = data["pedestal_diameter"] / 2.0
-
-    start = (r_start, foundation_top_z(data, r_start) - cover)
-    end = (r_end, foundation_top_z(data, r_end) - cover)
-
-    if r_start < pedestal_radius < r_end:
-        middle = (
-            pedestal_radius,
-            foundation_top_z(data, pedestal_radius) - cover,
-        )
-
-        segments = []
-
-        if radius_z_distance(start, middle) > 1.0:
-            segments.append([start, middle])
-
-        if radius_z_distance(middle, end) > 1.0:
-            segments.append([middle, end])
-
-        return segments
-
-    return [[start, end]]
-
-
-def radius_z_distance(
-    first: tuple[float, float],
-    second: tuple[float, float],
-) -> float:
-    dr = second[0] - first[0]
-    dz = second[1] - first[1]
-    return math.sqrt(dr * dr + dz * dz)
-
-
-def remove_duplicate_radius_z(
-    profile: list[tuple[float, float]],
-    tolerance: float = 0.001,
-) -> list[tuple[float, float]]:
-    clean_profile = []
-
-    for radius, z in profile:
-        radius = float(radius)
-        z = float(z)
-
-        if not clean_profile:
-            clean_profile.append((radius, z))
-            continue
-
-        previous_radius, previous_z = clean_profile[-1]
-
-        if abs(radius - previous_radius) > tolerance or abs(z - previous_z) > tolerance:
-            clean_profile.append((radius, z))
-
-    return clean_profile
 
 
 def clean_rebar_points(
