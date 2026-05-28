@@ -286,20 +286,18 @@ def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
     for pile_index, pile in enumerate(data["pile_centers"]):
         cx = pile["x"]
         cy = pile["y"]
-        pile_distance = math.hypot(cx, cy)
-        z_max = pile_rebar_extension(data, pile_distance)
+        for bar_index in range(data["pile_vertical_count"]):
+            angle = 2.0 * math.pi * bar_index / data["pile_vertical_count"]
+            x = cx + vertical_axis_radius * math.cos(angle)
+            y = cy + vertical_axis_radius * math.sin(angle)
 
-        append_radial_vertical_rebar_placement(
-            elements=elements,
-            position_number=401 + pile_index,
-            diameter=vertical_diameter,
-            cx=cx,
-            cy=cy,
-            radius=vertical_axis_radius,
-            z_min=z_min,
-            z_max=z_max,
-            bar_count=data["pile_vertical_count"],
-        )
+            append_single_straight_rebar(
+                elements=elements,
+                position_number=401 + pile_index * data["pile_vertical_count"] + bar_index,
+                diameter=vertical_diameter,
+                start_point=AllplanGeo.Point3D(x, y, z_min),
+                end_point=AllplanGeo.Point3D(x, y, 0.0),
+            )
 
         append_vertical_circular_rebar_stack(
             elements=elements,
@@ -587,40 +585,31 @@ def append_vertical_circular_rebar_stack(
     elements.append(circular_area)
 
 
-def append_radial_vertical_rebar_placement(
+def append_single_straight_rebar(
     elements: ModelEleList,
     position_number: int,
     diameter: float,
-    cx: float,
-    cy: float,
-    radius: float,
-    z_min: float,
-    z_max: float,
-    bar_count: int,
+    start_point: AllplanGeo.Point3D,
+    end_point: AllplanGeo.Point3D,
 ) -> None:
-    if diameter <= 0.0 or radius <= 0.0 or bar_count <= 0:
+    if diameter <= 0.0:
         return
-    if z_max <= z_min:
+    if points_are_equal(start_point, end_point):
         return
 
-    start_point = AllplanGeo.Point3D(cx + radius, cy, z_min)
-    end_point = AllplanGeo.Point3D(cx + radius, cy, z_max)
     bending_shape = create_straight_rebar_shape(
         diameter=diameter,
         start_point=start_point,
         end_point=end_point,
     )
-    rotation_axis = AllplanGeo.Line3D(
-        AllplanGeo.Point3D(cx, cy, z_min),
-        AllplanGeo.Point3D(cx, cy, z_min + 1.0),
-    )
-    delta_angle = AllplanGeo.Angle.FromDeg(-360.0 / float(bar_count))
+
     placement = AllplanReinf.BarPlacement(
-        positionNumber=position_number,
-        barCount=bar_count,
-        rotationAxis=rotation_axis,
-        rotationAngle=delta_angle,
-        bendingShape=bending_shape,
+        position_number,
+        1,
+        AllplanGeo.Vector3D(),
+        AllplanGeo.Point3D(),
+        AllplanGeo.Point3D(),
+        bending_shape,
     )
     elements.append(placement)
 
@@ -635,17 +624,12 @@ def create_straight_rebar_shape(
 
     shape_properties = ReinforcementShapeProperties.rebar(
         diameter=diameter,
-        bending_roller=4.0,
+        bending_roller=-1,
         steel_grade=-1,
         concrete_grade=-1,
         bending_shape_type=AllplanReinf.BendingShapeType.LongitudinalBar,
     )
-    zero_cover = ConcreteCoverProperties(
-        left=0.0,
-        bottom=0.0,
-        right=0.0,
-        top=0.0,
-    )
+    zero_cover = ConcreteCoverProperties.all(0.0)
     return GeneralShapeBuilder.create_longitudinal_shape_with_anchorage(
         from_point=start_point,
         to_point=end_point,
@@ -654,6 +638,13 @@ def create_straight_rebar_shape(
         start_anchorage=0.0,
         end_anchorage=0.0,
     )
+
+
+def points_are_equal(left: AllplanGeo.Point3D, right: AllplanGeo.Point3D, tolerance: float = 0.001) -> bool:
+    dx = left.X - right.X
+    dy = left.Y - right.Y
+    dz = left.Z - right.Z
+    return math.sqrt(dx * dx + dy * dy + dz * dz) <= tolerance
 
 
 def append_untrimmed_radial_bar(
