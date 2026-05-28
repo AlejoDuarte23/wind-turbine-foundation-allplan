@@ -287,28 +287,62 @@ def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
 
 
 def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
-    radius = data["pile_diameter"] / 2.0 - data["cover"]
-    if radius <= 0.0:
-        return
+    pile_radius = data["pile_diameter"] / 2.0
+    cover = data["cover"]
+    vertical_diameter = data["pile_vertical_diameter"]
+    hoop_diameter = data["pile_hoop_diameter"]
+    vertical_count = data["pile_vertical_count"]
+    steel_grade = data.get("steel_grade", -1)
+    concrete_grade = data.get("concrete_grade", -1)
 
-    z_min = -data["pile_depth"]
-    vertical_radius = data["pile_vertical_diameter"] / 2.0
-    hoop_radius = data["pile_hoop_diameter"] / 2.0
+    if vertical_count < 2:
+        raise ValueError("Rotational pile vertical placement needs at least two bars.")
 
-    for pile in data["pile_centers"]:
+    vertical_axis_radius = pile_radius - cover - vertical_diameter / 2.0
+    if vertical_axis_radius <= 0.0:
+        raise ValueError("No room left for pile vertical bars after cover and diameter.")
+
+    hoop_axis_radius = pile_radius - cover - hoop_diameter / 2.0
+    if hoop_axis_radius <= 0.0:
+        raise ValueError("No room left for pile hoops after cover and diameter.")
+
+    if data["pile_hoop_spacing"] <= 0.0:
+        raise ValueError("Pile hoop spacing must be positive.")
+
+    z_bottom = -data["pile_depth"] + cover
+    z_top = -cover
+    if (z_top - z_bottom) <= 0.001:
+        raise ValueError("Pile reinforcement clear height is zero or negative.")
+
+    for pile_index, pile in enumerate(data["pile_centers"]):
         cx = pile["x"]
         cy = pile["y"]
-        pile_distance = math.hypot(cx, cy)
-        z_max = pile_rebar_extension(data, pile_distance)
 
-        for index in range(data["pile_vertical_count"]):
-            angle = 2.0 * math.pi * index / data["pile_vertical_count"]
-            x = cx + radius * math.cos(angle)
-            y = cy + radius * math.sin(angle)
-            append_cylinder_z(elements, vertical_radius, x, y, z_min, z_max)
+        append_pile_vertical_rebar_set(
+            elements=elements,
+            position_number=4000 + pile_index,
+            diameter=vertical_diameter,
+            cx=cx,
+            cy=cy,
+            radius=vertical_axis_radius,
+            z_bottom=z_bottom,
+            z_top=z_top,
+            bar_count=vertical_count,
+            steel_grade=steel_grade,
+            concrete_grade=concrete_grade,
+        )
 
-        for z in positions_between(z_min, 0.0, data["pile_hoop_spacing"]):
-            append_ring(elements, hoop_radius, cx, cy, radius, z, segments=20)
+        append_vertical_circular_rebar_stack(
+            elements=elements,
+            position_number=6000 + pile_index,
+            diameter=hoop_diameter,
+            cx=cx,
+            cy=cy,
+            radius=hoop_axis_radius,
+            z_start=z_bottom,
+            z_end=z_top,
+            spacing=data["pile_hoop_spacing"],
+        )
 
 
 def append_vertical_cylinder(elements: ModelEleList, radius: float, z_min: float, height: float, cx: float = 0.0, cy: float = 0.0) -> None:
@@ -630,15 +664,72 @@ def append_radial_rebar_set(
     elements.append(placement)
 
 
+def append_pile_vertical_rebar_set(
+    elements: ModelEleList,
+    position_number: int,
+    diameter: float,
+    cx: float,
+    cy: float,
+    radius: float,
+    z_bottom: float,
+    z_top: float,
+    bar_count: int,
+    steel_grade: int = -1,
+    concrete_grade: int = -1,
+) -> None:
+    if diameter <= 0.0:
+        return
+
+    if bar_count < 2:
+        raise ValueError("Rotational pile vertical placement needs at least two bars.")
+
+    if radius <= 0.0:
+        raise ValueError("Pile vertical bar axis radius must be positive.")
+
+    if z_top <= z_bottom:
+        raise ValueError("Pile vertical bar clear height must be positive.")
+
+    start_point = AllplanGeo.Point3D(cx + radius, cy, z_bottom)
+    end_point = AllplanGeo.Point3D(cx + radius, cy, z_top)
+
+    bending_shape = create_straight_rebar_shape_from_points(
+        diameter=diameter,
+        start_point=start_point,
+        end_point=end_point,
+        steel_grade=steel_grade,
+        concrete_grade=concrete_grade,
+    )
+
+    rotation_axis = AllplanGeo.Line3D(
+        AllplanGeo.Point3D(cx, cy, z_bottom),
+        AllplanGeo.Point3D(cx, cy, z_bottom + 1.0),
+    )
+    rotation_angle = AllplanGeo.Angle.FromDeg(360.0 / float(bar_count))
+
+    placement = AllplanReinf.BarPlacement(
+        position_number,
+        bar_count,
+        rotation_axis,
+        rotation_angle,
+        bending_shape,
+    )
+
+    elements.append(placement)
+
+
 def create_straight_rebar_shape_from_points(
     diameter: float,
     start_point: AllplanGeo.Point3D,
     end_point: AllplanGeo.Point3D,
+    steel_grade: int = -1,
+    concrete_grade: int = -1,
 ):
     return create_oriented_straight_rebar_shape(
         diameter=diameter,
         start_point=start_point,
         end_point=end_point,
+        steel_grade=steel_grade,
+        concrete_grade=concrete_grade,
     )
 
 
@@ -646,6 +737,8 @@ def create_oriented_straight_rebar_shape(
     diameter: float,
     start_point: AllplanGeo.Point3D,
     end_point: AllplanGeo.Point3D,
+    steel_grade: int = -1,
+    concrete_grade: int = -1,
 ):
     if diameter <= 0.0:
         raise RuntimeError("Rebar diameter must be greater than zero.")
@@ -662,8 +755,8 @@ def create_oriented_straight_rebar_shape(
     shape_properties = ReinforcementShapeProperties.rebar(
         diameter=diameter,
         bending_roller=-1,
-        steel_grade=-1,
-        concrete_grade=-1,
+        steel_grade=steel_grade,
+        concrete_grade=concrete_grade,
         bending_shape_type=AllplanReinf.BendingShapeType.LongitudinalBar,
     )
 
@@ -790,11 +883,6 @@ def foundation_top_z(data: dict, radius: float) -> float:
     return center_h - (center_h - edge_h) * (radius - pedestal_radius) / slope_span
 
 
-def pile_rebar_extension(data: dict, radius: float) -> float:
-    local_cap_thickness = foundation_top_z(data, radius)
-    return max(0.0, min(local_cap_thickness - data["cover"], local_cap_thickness * 0.45))
-
-
 def positions_between(start: float, end: float, spacing: float) -> list[float]:
     if end < start:
         return []
@@ -821,7 +909,9 @@ def build_result(data: dict, run_id: str) -> dict:
     outer_radius = max(0.0, foundation_radius - cover)
     ring_count = len(radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]))
     top_ring_count = len(radii_between(max(cover, pedestal_radius * 0.35), outer_radius, data["ring_spacing"]))
-    pile_hoop_count = len(positions_between(-data["pile_depth"], 0.0, data["pile_hoop_spacing"]))
+    pile_rebar_bottom_z = -data["pile_depth"] + cover
+    pile_rebar_top_z = -cover
+    pile_hoop_count = len(positions_between(pile_rebar_bottom_z, pile_rebar_top_z, data["pile_hoop_spacing"]))
     pedestal_clear_radius = max(0.0, pedestal_radius - cover)
     pedestal_frame_count = len(positions_between(-pedestal_clear_radius, pedestal_clear_radius, data["pedestal_grid_spacing"]))
     pedestal_tie_count = len(
@@ -851,8 +941,10 @@ def build_result(data: dict, run_id: str) -> dict:
             "bottom_real_radial_bars": data["bottom_radial_bar_count"],
             "pedestal_rectangular_frames": 2 * pedestal_frame_count,
             "pedestal_circular_ties": pedestal_tie_count,
-            "pile_visual_vertical_bars": len(data["pile_centers"]) * data["pile_vertical_count"],
-            "pile_visual_hoops": len(data["pile_centers"]) * pile_hoop_count,
+            "pile_real_vertical_bar_placements": len(data["pile_centers"]),
+            "pile_real_vertical_bars": len(data["pile_centers"]) * data["pile_vertical_count"],
+            "pile_real_hoop_stacks": len(data["pile_centers"]),
+            "pile_real_hoops": len(data["pile_centers"]) * pile_hoop_count,
         },
         "inputs": data,
     }

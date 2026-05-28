@@ -218,10 +218,11 @@ class Controller(vkt.Controller):
         pedestal_tie_count = cls._bar_count(data["pedestal_height"] - 2.0 * cover, data["pedestal_tie_spacing"])
         pedestal_tie_length = 2.0 * math.pi * pedestal_clear_radius
 
-        pile_hoop_count = cls._bar_count(data["pile_depth"], data["pile_hoop_spacing"])
-        pile_hoop_radius = max(0.0, data["pile_diameter"] / 2.0 - cover)
+        pile_rebar_height = max(0.0, data["pile_depth"] - 2.0 * cover)
+        pile_hoop_count = cls._bar_count(pile_rebar_height, data["pile_hoop_spacing"])
+        pile_hoop_radius = max(0.0, data["pile_diameter"] / 2.0 - cover - data["pile_hoop_diameter"] / 2.0)
         pile_hoop_length = 2.0 * math.pi * pile_hoop_radius
-        pile_vertical_length = data["pile_depth"] + cls._pile_rebar_extension(data, data["pile_ring_radius"])
+        pile_vertical_length = pile_rebar_height
 
         rows = [
             [
@@ -925,29 +926,37 @@ class Controller(vkt.Controller):
 
     @classmethod
     def _add_pile_geometry(cls, objects: list, data: dict, steel, light_steel) -> None:
-        pile_cage_radius = max(0.0, data["pile_diameter"] / 2.0 - data["cover"])
-        if pile_cage_radius <= 0.0:
+        pile_vertical_axis_radius = max(
+            0.0,
+            data["pile_diameter"] / 2.0 - data["cover"] - data["pile_vertical_diameter"] / 2.0,
+        )
+        pile_hoop_axis_radius = max(
+            0.0,
+            data["pile_diameter"] / 2.0 - data["cover"] - data["pile_hoop_diameter"] / 2.0,
+        )
+        if pile_vertical_axis_radius <= 0.0 or pile_hoop_axis_radius <= 0.0:
             return
 
         vertical_size = cls._visual_bar_size(data["pile_vertical_diameter"], multiplier=3.5, minimum=50.0)
         hoop_size = cls._visual_bar_size(data["pile_hoop_diameter"], multiplier=3.5, minimum=45.0)
         vertical_count = min(max(data["pile_vertical_count"], 4), 8)
+        z_bottom = -data["pile_depth"] + data["cover"]
+        z_top = -data["cover"]
         hoop_positions = cls._sample_positions(
-            cls._positions_between(-data["pile_depth"], 0.0, data["pile_hoop_spacing"]),
+            cls._positions_between(z_bottom, z_top, data["pile_hoop_spacing"]),
             max_count=4,
         )
 
         for pile_index, pile in enumerate(data["pile_centers"]):
             cx = pile["x"]
             cy = pile["y"]
-            z_top = cls._foundation_top_z(data, math.hypot(cx, cy)) - data["cover"]
             for bar_index in range(vertical_count):
                 angle = 2.0 * math.pi * bar_index / vertical_count
-                x = cx + pile_cage_radius * math.cos(angle)
-                y = cy + pile_cage_radius * math.sin(angle)
+                x = cx + pile_vertical_axis_radius * math.cos(angle)
+                y = cy + pile_vertical_axis_radius * math.sin(angle)
                 cls._add_geometry_bar(
                     objects,
-                    (x, y, -data["pile_depth"]),
+                    (x, y, z_bottom),
                     (x, y, z_top),
                     vertical_size,
                     steel,
@@ -956,7 +965,7 @@ class Controller(vkt.Controller):
             for hoop_index, z in enumerate(hoop_positions):
                 cls._add_geometry_ring(
                     objects,
-                    pile_cage_radius,
+                    pile_hoop_axis_radius,
                     z,
                     hoop_size,
                     light_steel,
@@ -1095,8 +1104,12 @@ class Controller(vkt.Controller):
             )
 
         pile_lines = []
-        pile_cage_r = max(0.0, pile_r - data["cover"])
-        hoop_count = cls._bar_count(data["pile_depth"], data["pile_hoop_spacing"])
+        pile_vertical_axis_r = max(0.0, pile_r - data["cover"] - data["pile_vertical_diameter"] / 2.0)
+        pile_hoop_axis_r = max(0.0, pile_r - data["cover"] - data["pile_hoop_diameter"] / 2.0)
+        pile_rebar_bottom_z = -data["pile_depth"] + data["cover"]
+        pile_rebar_top_z = -data["cover"]
+        pile_rebar_height = max(0.0, pile_rebar_top_z - pile_rebar_bottom_z)
+        hoop_count = cls._bar_count(pile_rebar_height, data["pile_hoop_spacing"])
         for x in [-data["pile_ring_radius"], data["pile_ring_radius"]]:
             pile_lines.append(
                 f'<line x1="{sx(x - pile_r):.2f}" y1="{sy(0.0):.2f}" x2="{sx(x - pile_r):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
@@ -1107,19 +1120,18 @@ class Controller(vkt.Controller):
                 f'stroke="#6a6a6a" stroke-width="1" stroke-dasharray="6 5"/>'
             )
             for side in [-1.0, 1.0]:
-                cage_x = x + side * pile_cage_r
-                cage_top_z = cls._pile_rebar_extension(data, abs(x))
+                cage_x = x + side * pile_vertical_axis_r
                 pile_lines.append(
-                    f'<line x1="{sx(cage_x):.2f}" y1="{sy(cage_top_z):.2f}" '
-                    f'x2="{sx(cage_x):.2f}" y2="{sy(-data["pile_depth"]):.2f}" '
+                    f'<line x1="{sx(cage_x):.2f}" y1="{sy(pile_rebar_top_z):.2f}" '
+                    f'x2="{sx(cage_x):.2f}" y2="{sy(pile_rebar_bottom_z):.2f}" '
                     f'stroke="#3f3f3f" stroke-width="1.4"/>'
                 )
             for hoop_index in range(min(hoop_count, 10)):
                 fraction = cls._fraction(hoop_index, min(hoop_count, 10))
-                z = -data["pile_depth"] + fraction * data["pile_depth"]
+                z = pile_rebar_bottom_z + fraction * pile_rebar_height
                 pile_lines.append(
-                    f'<line x1="{sx(x - pile_cage_r):.2f}" y1="{sy(z):.2f}" '
-                    f'x2="{sx(x + pile_cage_r):.2f}" y2="{sy(z):.2f}" '
+                    f'<line x1="{sx(x - pile_hoop_axis_r):.2f}" y1="{sy(z):.2f}" '
+                    f'x2="{sx(x + pile_hoop_axis_r):.2f}" y2="{sy(z):.2f}" '
                     f'stroke="#8a8a8a" stroke-width="0.9"/>'
                 )
 
@@ -1235,11 +1247,6 @@ class Controller(vkt.Controller):
             return edge_h
         slope_span = max(1.0, foundation_radius - pedestal_radius)
         return center_h - (center_h - edge_h) * (radius - pedestal_radius) / slope_span
-
-    @classmethod
-    def _pile_rebar_extension(cls, data: dict, radius: float) -> float:
-        local_cap_thickness = cls._foundation_top_z(data, radius)
-        return max(0.0, min(local_cap_thickness - data["cover"], local_cap_thickness * 0.45))
 
     @classmethod
     def _sloped_radial_length(cls, data: dict, start_radius: float, end_radius: float) -> float:
