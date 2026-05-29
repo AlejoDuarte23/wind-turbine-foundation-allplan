@@ -54,7 +54,6 @@ class Parametrization(vkt.Parametrization):
     reinforcement.pedestal_grid_bar_diameter = vkt.NumberField("Pedestal grid bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_spacing = vkt.NumberField("Pedestal grid spacing", default=350.0, min=100.0, suffix="mm", flex=50)
     reinforcement.pedestal_frame_embed_depth = vkt.NumberField("Pedestal frame embed depth", default=500.0, min=0.0, suffix="mm", flex=50)
-    reinforcement.pedestal_frame_spread = vkt.NumberField("Pedestal frame spread", default=300.0, min=0.0, suffix="mm", flex=50)
     reinforcement.pedestal_tie_diameter = vkt.NumberField("Pedestal tie diameter", default=12.0, min=6.0, suffix="mm", flex=50)
     reinforcement.pedestal_tie_spacing = vkt.NumberField("Pedestal tie spacing", default=250.0, min=75.0, suffix="mm", flex=50)
     reinforcement.pile_vertical_diameter = vkt.NumberField("Pile vertical bar diameter", default=16.0, min=8.0, suffix="mm", flex=50)
@@ -177,7 +176,6 @@ class Controller(vkt.Controller):
             "pedestal_grid_bar_diameter": float(params.reinforcement.pedestal_grid_bar_diameter),
             "pedestal_grid_spacing": float(params.reinforcement.pedestal_grid_spacing),
             "pedestal_frame_embed_depth": float(params.reinforcement.pedestal_frame_embed_depth),
-            "pedestal_frame_spread": float(params.reinforcement.pedestal_frame_spread),
             "pedestal_tie_diameter": float(params.reinforcement.pedestal_tie_diameter),
             "pedestal_tie_spacing": float(params.reinforcement.pedestal_tie_spacing),
             "pile_vertical_diameter": float(params.reinforcement.pile_vertical_diameter),
@@ -223,7 +221,6 @@ class Controller(vkt.Controller):
         )
         bottom_length = (
             max(0.0, outer_radius - cover)
-            + cls._inner_radial_hook_length(data["bottom_radial_bar_diameter"])
             + cls._outer_radial_hook_length(data)
         )
 
@@ -1168,18 +1165,14 @@ class Controller(vkt.Controller):
         top_inner = max(cover, pedestal_radius * 0.35)
         top_slope_start = min(max(pedestal_radius + cover, top_inner), outer)
         top_slope_start_z = cls._foundation_top_z(data, top_slope_start) - cover
-        bottom_inner_hook_length = cls._inner_radial_hook_length(data["bottom_radial_bar_diameter"])
         top_inner_hook_length = cls._inner_radial_hook_length(data["top_radial_bar_diameter"])
         outer_hook_length = cls._outer_radial_hook_length(data)
         bottom_y = sy(cover)
-        bottom_inner_hook_top_y = sy(cover + bottom_inner_hook_length)
         bottom_outer_hook_top_y = sy(cover + outer_hook_length)
         bottom_rebar = (
             f'<line x1="{sx(-outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(-cover):.2f}" y2="{bottom_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
             f'<line x1="{sx(cover):.2f}" y1="{bottom_y:.2f}" x2="{sx(outer):.2f}" y2="{bottom_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
             f'<line x1="{sx(-outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(-outer):.2f}" y2="{bottom_outer_hook_top_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
-            f'<line x1="{sx(-cover):.2f}" y1="{bottom_y:.2f}" x2="{sx(-cover):.2f}" y2="{bottom_inner_hook_top_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
-            f'<line x1="{sx(cover):.2f}" y1="{bottom_y:.2f}" x2="{sx(cover):.2f}" y2="{bottom_inner_hook_top_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
             f'<line x1="{sx(outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(outer):.2f}" y2="{bottom_outer_hook_top_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
         )
         top_left = cls._section_top_polyline(data, -outer, -top_slope_start, scale, cx, base_y)
@@ -1327,9 +1320,7 @@ class Controller(vkt.Controller):
 
     @staticmethod
     def _pedestal_frame_radius(data: dict) -> float:
-        foundation_clear_radius = max(0.0, data["foundation_diameter"] / 2.0 - data["cover"])
-        pedestal_clear_radius = max(0.0, data["pedestal_diameter"] / 2.0 - data["cover"])
-        return min(foundation_clear_radius, pedestal_clear_radius + data.get("pedestal_frame_spread", 0.0))
+        return max(0.0, data["pedestal_diameter"] / 2.0 - data["cover"])
 
     @staticmethod
     def _pedestal_frame_bottom_z(data: dict) -> float:

@@ -235,8 +235,6 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
         z_start=cover,
         z_end=cover,
         bar_count=data["bottom_radial_bar_count"],
-        start_hook_length=inner_radial_hook_length(data["bottom_radial_bar_diameter"]),
-        start_hook_angle=90.0,
         end_hook_length=outer_radial_hook_length(data),
         end_hook_angle=90.0,
     )
@@ -989,9 +987,7 @@ def inner_radial_hook_length(diameter: float) -> float:
 
 
 def pedestal_frame_radius(data: dict) -> float:
-    foundation_clear_radius = max(0.0, data["foundation_diameter"] / 2.0 - data["cover"])
-    pedestal_clear_radius = max(0.0, data["pedestal_diameter"] / 2.0 - data["cover"])
-    return min(foundation_clear_radius, pedestal_clear_radius + data.get("pedestal_frame_spread", 0.0))
+    return max(0.0, data["pedestal_diameter"] / 2.0 - data["cover"])
 
 
 def pedestal_frame_bottom_z(data: dict) -> float:
@@ -1065,11 +1061,11 @@ def build_result(data: dict, run_id: str) -> dict:
             "top_real_radial_bars": data["top_radial_bar_count"],
             "bottom_real_radial_bars": data["bottom_radial_bar_count"],
             "top_radial_inner_90_degree_hook_length": inner_radial_hook_length(data["top_radial_bar_diameter"]),
-            "bottom_radial_inner_90_degree_hook_length": inner_radial_hook_length(data["bottom_radial_bar_diameter"]),
+            "bottom_radial_inner_90_degree_hook_length": 0.0,
             "top_radial_outer_90_degree_hook_length": outer_radial_hook_length(data),
             "bottom_radial_outer_90_degree_hook_length": outer_radial_hook_length(data),
             "top_radial_90_degree_hooks_per_bar": 2,
-            "bottom_radial_90_degree_hooks_per_bar": 2,
+            "bottom_radial_90_degree_hooks_per_bar": 1,
             "pedestal_rectangular_frames": 2 * pedestal_frame_count,
             "pedestal_circular_ties": pedestal_tie_count,
             "pile_real_vertical_bar_placements": len(data["pile_centers"]),
