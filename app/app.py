@@ -53,6 +53,8 @@ class Parametrization(vkt.Parametrization):
     reinforcement.ring_spacing = vkt.NumberField("Circular base bar spacing", default=550.0, min=150.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_bar_diameter = vkt.NumberField("Pedestal grid bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_spacing = vkt.NumberField("Pedestal grid spacing", default=350.0, min=100.0, suffix="mm", flex=50)
+    reinforcement.pedestal_frame_embed_depth = vkt.NumberField("Pedestal frame embed depth", default=500.0, min=0.0, suffix="mm", flex=50)
+    reinforcement.pedestal_frame_spread = vkt.NumberField("Pedestal frame spread", default=300.0, min=0.0, suffix="mm", flex=50)
     reinforcement.pedestal_tie_diameter = vkt.NumberField("Pedestal tie diameter", default=12.0, min=6.0, suffix="mm", flex=50)
     reinforcement.pedestal_tie_spacing = vkt.NumberField("Pedestal tie spacing", default=250.0, min=75.0, suffix="mm", flex=50)
     reinforcement.pile_vertical_diameter = vkt.NumberField("Pile vertical bar diameter", default=16.0, min=8.0, suffix="mm", flex=50)
@@ -173,6 +175,8 @@ class Controller(vkt.Controller):
             "ring_spacing": float(params.reinforcement.ring_spacing),
             "pedestal_grid_bar_diameter": float(params.reinforcement.pedestal_grid_bar_diameter),
             "pedestal_grid_spacing": float(params.reinforcement.pedestal_grid_spacing),
+            "pedestal_frame_embed_depth": float(params.reinforcement.pedestal_frame_embed_depth),
+            "pedestal_frame_spread": float(params.reinforcement.pedestal_frame_spread),
             "pedestal_tie_diameter": float(params.reinforcement.pedestal_tie_diameter),
             "pedestal_tie_spacing": float(params.reinforcement.pedestal_tie_spacing),
             "pile_vertical_diameter": float(params.reinforcement.pile_vertical_diameter),
@@ -222,8 +226,13 @@ class Controller(vkt.Controller):
         )
 
         pedestal_clear_radius = max(0.0, pedestal_radius - cover)
-        pedestal_grid_x_lengths = cls._grid_bar_lengths(pedestal_clear_radius, data["pedestal_grid_spacing"])
-        pedestal_grid_y_lengths = cls._grid_bar_lengths(pedestal_clear_radius, data["pedestal_grid_spacing"])
+        pedestal_frame_radius = cls._pedestal_frame_radius(data)
+        pedestal_frame_height = max(
+            0.0,
+            data["foundation_center_thickness"] + data["pedestal_height"] - cover - cls._pedestal_frame_bottom_z(data),
+        )
+        pedestal_grid_x_lengths = cls._rectangular_frame_lengths(pedestal_frame_radius, data["pedestal_grid_spacing"], pedestal_frame_height)
+        pedestal_grid_y_lengths = cls._rectangular_frame_lengths(pedestal_frame_radius, data["pedestal_grid_spacing"], pedestal_frame_height)
         pedestal_tie_count = cls._bar_count(data["pedestal_height"] - 2.0 * cover, data["pedestal_tie_spacing"])
         pedestal_tie_length = 2.0 * math.pi * pedestal_clear_radius
 
@@ -272,21 +281,21 @@ class Controller(vkt.Controller):
             ],
             [
                 "P1",
-                "Pedestal grid X, top and bottom",
+                "Pedestal rectangular frames X",
                 data["pedestal_grid_bar_diameter"],
                 f"@ {data['pedestal_grid_spacing']:.0f} mm",
-                2 * len(pedestal_grid_x_lengths),
+                len(pedestal_grid_x_lengths),
                 cls._average(pedestal_grid_x_lengths),
-                2.0 * sum(pedestal_grid_x_lengths),
+                sum(pedestal_grid_x_lengths),
             ],
             [
                 "P2",
-                "Pedestal grid Y, top and bottom",
+                "Pedestal rectangular frames Y",
                 data["pedestal_grid_bar_diameter"],
                 f"@ {data['pedestal_grid_spacing']:.0f} mm",
-                2 * len(pedestal_grid_y_lengths),
+                len(pedestal_grid_y_lengths),
                 cls._average(pedestal_grid_y_lengths),
-                2.0 * sum(pedestal_grid_y_lengths),
+                sum(pedestal_grid_y_lengths),
             ],
             [
                 "P3",
@@ -486,7 +495,7 @@ class Controller(vkt.Controller):
                 by = py - cage_r * math.sin(angle)
                 pile_marks.append(f'<circle cx="{bx:.2f}" cy="{by:.2f}" r="{dot_r:.2f}" fill="#3d3d3d"/>')
 
-        pedestal_grid = cls._pedestal_grid_svg(cx, cy, pedestal_radius - data["cover"], data["pedestal_grid_spacing"], scale)
+        pedestal_grid = cls._pedestal_grid_svg(cx, cy, cls._pedestal_frame_radius(data), data["pedestal_grid_spacing"], scale)
         pedestal_rebar = cls._pedestal_rebar_svg(cx, cy, pedestal_radius, data, scale)
 
         return f"""
@@ -909,25 +918,27 @@ class Controller(vkt.Controller):
     def _add_pedestal_geometry(cls, objects: list, data: dict, steel, secondary_steel) -> None:
         pedestal_radius = data["pedestal_diameter"] / 2.0
         clear_radius = max(0.0, pedestal_radius - data["cover"])
-        z_bottom = data["foundation_center_thickness"] + data["cover"]
+        frame_radius = cls._pedestal_frame_radius(data)
+        frame_z_bottom = cls._pedestal_frame_bottom_z(data)
+        tie_z_bottom = data["foundation_center_thickness"] + data["cover"]
         z_top = data["foundation_center_thickness"] + data["pedestal_height"] - data["cover"]
         frame_size = cls._visual_bar_size(data["pedestal_grid_bar_diameter"], multiplier=4.0, minimum=70.0)
         tie_size = cls._visual_bar_size(data["pedestal_tie_diameter"], multiplier=4.0, minimum=55.0)
 
         offsets = cls._sample_positions(
-            cls._positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"]),
+            cls._positions_between(-frame_radius, frame_radius, data["pedestal_grid_spacing"]),
             max_count=13,
         )
         for index, x in enumerate(offsets):
-            y_half = math.sqrt(max(0.0, clear_radius * clear_radius - x * x))
-            cls._add_vertical_rect_y(objects, x, -y_half, y_half, z_bottom, z_top, frame_size, steel, f"ped-y-frame-{index}")
+            y_half = math.sqrt(max(0.0, frame_radius * frame_radius - x * x))
+            cls._add_vertical_rect_y(objects, x, -y_half, y_half, frame_z_bottom, z_top, frame_size, steel, f"ped-y-frame-{index}")
 
         for index, y in enumerate(offsets):
-            x_half = math.sqrt(max(0.0, clear_radius * clear_radius - y * y))
-            cls._add_vertical_rect_x(objects, -x_half, x_half, y, z_bottom, z_top, frame_size, steel, f"ped-x-frame-{index}")
+            x_half = math.sqrt(max(0.0, frame_radius * frame_radius - y * y))
+            cls._add_vertical_rect_x(objects, -x_half, x_half, y, frame_z_bottom, z_top, frame_size, steel, f"ped-x-frame-{index}")
 
         tie_positions = cls._sample_positions(
-            cls._positions_between(z_bottom, z_top, data["pedestal_tie_spacing"]),
+            cls._positions_between(tie_z_bottom, z_top, data["pedestal_tie_spacing"]),
             max_count=10,
         )
         for index, z in enumerate(tie_positions):
@@ -1193,20 +1204,22 @@ class Controller(vkt.Controller):
             bottom_dots.append(cls._section_dot(sx(x_offset), bottom_y, 2.75, "#6f6f6f"))
 
         pedestal_section_rebar = []
-        grid_half = pedestal_radius - cover
-        grid_bottom_z = center_h + cover
+        grid_half = cls._pedestal_frame_radius(data)
+        grid_bottom_z = cls._pedestal_frame_bottom_z(data)
         grid_top_z = center_h + pedestal_h - cover
+        tie_half = max(0.0, pedestal_radius - cover)
+        tie_bottom_z = center_h + cover
         dot_radius = 3.05
         pedestal_section_rebar.append(
             f'<rect x="{sx(-grid_half):.2f}" y="{sy(grid_top_z):.2f}" '
             f'width="{2.0 * grid_half * scale:.2f}" height="{(grid_top_z - grid_bottom_z) * scale:.2f}" '
             f'fill="none" stroke="#2f2f2f" stroke-width="1.5"/>'
         )
-        tie_positions = cls._equal_values(grid_bottom_z + data["pedestal_tie_spacing"] * 0.5, grid_top_z - data["pedestal_tie_spacing"] * 0.5, 5)
+        tie_positions = cls._equal_values(tie_bottom_z + data["pedestal_tie_spacing"] * 0.5, grid_top_z - data["pedestal_tie_spacing"] * 0.5, 5)
         for z in tie_positions:
             pedestal_section_rebar.append(
-                f'<line x1="{sx(-grid_half):.2f}" y1="{sy(z):.2f}" '
-                f'x2="{sx(grid_half):.2f}" y2="{sy(z):.2f}" '
+                f'<line x1="{sx(-tie_half):.2f}" y1="{sy(z):.2f}" '
+                f'x2="{sx(tie_half):.2f}" y2="{sy(z):.2f}" '
                 f'stroke="#777777" stroke-width="0.85" stroke-dasharray="7 5"/>'
             )
         section_bar_positions = cls._equal_values(-grid_half + 160.0, grid_half - 160.0, 10)
@@ -1299,10 +1312,33 @@ class Controller(vkt.Controller):
         return max(12.0 * diameter, 100.0)
 
     @staticmethod
+    def _pedestal_frame_radius(data: dict) -> float:
+        foundation_clear_radius = max(0.0, data["foundation_diameter"] / 2.0 - data["cover"])
+        pedestal_clear_radius = max(0.0, data["pedestal_diameter"] / 2.0 - data["cover"])
+        return min(foundation_clear_radius, pedestal_clear_radius + data.get("pedestal_frame_spread", 0.0))
+
+    @staticmethod
+    def _pedestal_frame_bottom_z(data: dict) -> float:
+        return max(data["cover"], data["foundation_center_thickness"] - data.get("pedestal_frame_embed_depth", 0.0))
+
+    @staticmethod
     def _grid_bar_lengths(radius: float, spacing: float) -> list[float]:
         lengths = []
         for offset in Controller._positions_between(-radius, radius, spacing):
             lengths.append(2.0 * math.sqrt(max(0.0, radius * radius - offset * offset)))
+        return lengths
+
+    @staticmethod
+    def _rectangular_frame_lengths(radius: float, spacing: float, height: float) -> list[float]:
+        lengths = []
+        if radius <= 0.0 or height <= 0.0:
+            return lengths
+
+        for offset in Controller._positions_between(-radius, radius, spacing):
+            chord = 2.0 * math.sqrt(max(0.0, radius * radius - offset * offset))
+            if chord > 1.0:
+                lengths.append(2.0 * (chord + height))
+
         return lengths
 
     @classmethod

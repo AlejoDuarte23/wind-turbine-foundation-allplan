@@ -277,21 +277,23 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
 def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
     pedestal_radius = data["pedestal_diameter"] / 2.0
     clear_radius = max(0.0, pedestal_radius - data["cover"])
+    frame_radius = pedestal_frame_radius(data)
     bar_diameter = data["pedestal_grid_bar_diameter"]
-    z_bottom = data["foundation_center_thickness"] + data["cover"]
+    frame_z_bottom = pedestal_frame_bottom_z(data)
+    tie_z_bottom = data["foundation_center_thickness"] + data["cover"]
     z_top = data["foundation_center_thickness"] + data["pedestal_height"] - data["cover"]
     steel_grade = data.get("steel_grade", -1)
     concrete_grade = data.get("concrete_grade", -1)
 
-    for frame_index, x in enumerate(positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"])):
-        y_half = math.sqrt(max(0.0, clear_radius * clear_radius - x * x))
+    for frame_index, x in enumerate(positions_between(-frame_radius, frame_radius, data["pedestal_grid_spacing"])):
+        y_half = math.sqrt(max(0.0, frame_radius * frame_radius - x * x))
         append_pedestal_rectangular_frame(
             elements=elements,
             position_number=8000 + frame_index,
             diameter=bar_diameter,
             points=[
-                AllplanGeo.Point3D(x, -y_half, z_bottom),
-                AllplanGeo.Point3D(x, y_half, z_bottom),
+                AllplanGeo.Point3D(x, -y_half, frame_z_bottom),
+                AllplanGeo.Point3D(x, y_half, frame_z_bottom),
                 AllplanGeo.Point3D(x, y_half, z_top),
                 AllplanGeo.Point3D(x, -y_half, z_top),
             ],
@@ -299,15 +301,15 @@ def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
             concrete_grade=concrete_grade,
         )
 
-    for frame_index, y in enumerate(positions_between(-clear_radius, clear_radius, data["pedestal_grid_spacing"])):
-        x_half = math.sqrt(max(0.0, clear_radius * clear_radius - y * y))
+    for frame_index, y in enumerate(positions_between(-frame_radius, frame_radius, data["pedestal_grid_spacing"])):
+        x_half = math.sqrt(max(0.0, frame_radius * frame_radius - y * y))
         append_pedestal_rectangular_frame(
             elements=elements,
             position_number=9000 + frame_index,
             diameter=bar_diameter,
             points=[
-                AllplanGeo.Point3D(-x_half, y, z_bottom),
-                AllplanGeo.Point3D(x_half, y, z_bottom),
+                AllplanGeo.Point3D(-x_half, y, frame_z_bottom),
+                AllplanGeo.Point3D(x_half, y, frame_z_bottom),
                 AllplanGeo.Point3D(x_half, y, z_top),
                 AllplanGeo.Point3D(-x_half, y, z_top),
             ],
@@ -322,7 +324,7 @@ def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
         cx=0.0,
         cy=0.0,
         radius=clear_radius,
-        z_start=z_bottom,
+        z_start=tie_z_bottom,
         z_end=z_top,
         spacing=data["pedestal_tie_spacing"],
     )
@@ -979,6 +981,25 @@ def inner_radial_hook_length(diameter: float) -> float:
     return max(12.0 * diameter, 100.0)
 
 
+def pedestal_frame_radius(data: dict) -> float:
+    foundation_clear_radius = max(0.0, data["foundation_diameter"] / 2.0 - data["cover"])
+    pedestal_clear_radius = max(0.0, data["pedestal_diameter"] / 2.0 - data["cover"])
+    return min(foundation_clear_radius, pedestal_clear_radius + data.get("pedestal_frame_spread", 0.0))
+
+
+def pedestal_frame_bottom_z(data: dict) -> float:
+    return max(data["cover"], data["foundation_center_thickness"] - data.get("pedestal_frame_embed_depth", 0.0))
+
+
+def rectangular_frame_count(radius: float, spacing: float) -> int:
+    count = 0
+    for offset in positions_between(-radius, radius, spacing):
+        chord = 2.0 * math.sqrt(max(0.0, radius * radius - offset * offset))
+        if chord > 1.0:
+            count += 1
+    return count
+
+
 def positions_between(start: float, end: float, spacing: float) -> list[float]:
     if end < start:
         return []
@@ -1008,8 +1029,8 @@ def build_result(data: dict, run_id: str) -> dict:
     pile_rebar_bottom_z = -data["pile_depth"] + cover
     pile_rebar_top_z = -cover
     pile_hoop_count = len(positions_between(pile_rebar_bottom_z, pile_rebar_top_z, data["pile_hoop_spacing"]))
-    pedestal_clear_radius = max(0.0, pedestal_radius - cover)
-    pedestal_frame_count = len(positions_between(-pedestal_clear_radius, pedestal_clear_radius, data["pedestal_grid_spacing"]))
+    frame_radius = pedestal_frame_radius(data)
+    pedestal_frame_count = rectangular_frame_count(frame_radius, data["pedestal_grid_spacing"])
     pedestal_tie_count = len(
         positions_between(
             data["foundation_center_thickness"] + cover,
