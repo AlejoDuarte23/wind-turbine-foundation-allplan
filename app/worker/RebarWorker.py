@@ -354,13 +354,14 @@ def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
         raise ValueError("Pile hoop spacing must be positive.")
 
     z_bottom = -data["pile_depth"] + cover
-    z_top = -cover
-    if (z_top - z_bottom) <= 0.001:
+    hoop_z_top = -cover
+    if (hoop_z_top - z_bottom) <= 0.001:
         raise ValueError("Pile reinforcement clear height is zero or negative.")
 
     for pile_index, pile in enumerate(data["pile_centers"]):
         cx = pile["x"]
         cy = pile["y"]
+        vertical_z_top = pile_vertical_top_z(data, math.hypot(cx, cy))
 
         append_pile_vertical_rebar_set(
             elements=elements,
@@ -370,7 +371,7 @@ def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
             cy=cy,
             radius=vertical_axis_radius,
             z_bottom=z_bottom,
-            z_top=z_top,
+            z_top=vertical_z_top,
             bar_count=vertical_count,
             steel_grade=steel_grade,
             concrete_grade=concrete_grade,
@@ -384,7 +385,7 @@ def add_pile_rebar_visual(elements: ModelEleList, data: dict) -> None:
             cy=cy,
             radius=hoop_axis_radius,
             z_start=z_bottom,
-            z_end=z_top,
+            z_end=hoop_z_top,
             spacing=data["pile_hoop_spacing"],
         )
 
@@ -973,6 +974,12 @@ def foundation_top_z(data: dict, radius: float) -> float:
     return center_h - (center_h - edge_h) * (radius - pedestal_radius) / slope_span
 
 
+def pile_vertical_top_z(data: dict, pile_distance: float) -> float:
+    embed_depth = max(0.0, data.get("pile_vertical_embed_depth", 0.0))
+    cap_clear_top_z = max(0.0, foundation_top_z(data, pile_distance) - data["cover"])
+    return min(embed_depth, cap_clear_top_z)
+
+
 def outer_radial_hook_length(data: dict) -> float:
     return max(0.0, data["foundation_edge_thickness"] * 0.5)
 
@@ -1027,8 +1034,9 @@ def build_result(data: dict, run_id: str) -> dict:
     ring_count = len(radii_between(pedestal_radius + cover, outer_radius, data["ring_spacing"]))
     top_ring_count = len(radii_between(max(cover, pedestal_radius * 0.35), outer_radius, data["ring_spacing"]))
     pile_rebar_bottom_z = -data["pile_depth"] + cover
-    pile_rebar_top_z = -cover
-    pile_hoop_count = len(positions_between(pile_rebar_bottom_z, pile_rebar_top_z, data["pile_hoop_spacing"]))
+    pile_hoop_top_z = -cover
+    pile_vertical_z_top = pile_vertical_top_z(data, data["pile_ring_radius"])
+    pile_hoop_count = len(positions_between(pile_rebar_bottom_z, pile_hoop_top_z, data["pile_hoop_spacing"]))
     frame_radius = pedestal_frame_radius(data)
     pedestal_frame_count = rectangular_frame_count(frame_radius, data["pedestal_grid_spacing"])
     pedestal_tie_count = len(
@@ -1066,6 +1074,7 @@ def build_result(data: dict, run_id: str) -> dict:
             "pedestal_circular_ties": pedestal_tie_count,
             "pile_real_vertical_bar_placements": len(data["pile_centers"]),
             "pile_real_vertical_bars": len(data["pile_centers"]) * data["pile_vertical_count"],
+            "pile_vertical_embed_depth": max(0.0, pile_vertical_z_top),
             "pile_real_hoop_stacks": len(data["pile_centers"]),
             "pile_real_hoops": len(data["pile_centers"]) * pile_hoop_count,
         },
