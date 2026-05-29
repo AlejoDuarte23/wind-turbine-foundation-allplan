@@ -14,6 +14,13 @@ from StdReinfShapeBuilder.ReinforcementShapeProperties import ReinforcementShape
 from TypeCollections.Curve3DList import Curve3DList
 from TypeCollections.ModelEleList import ModelEleList
 
+try:
+    from Utils.RotationUtil import RotationUtil
+except ImportError:
+    from Utils import RotationUtil as RotationUtilModule
+
+    RotationUtil = getattr(RotationUtilModule, "RotationUtil", RotationUtilModule)
+
 
 PROJECT_NAME = "viktor-template"
 DRAWING_FILE_NUMBER = 1
@@ -228,6 +235,8 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
         z_start=cover,
         z_end=cover,
         bar_count=data["bottom_radial_bar_count"],
+        start_hook_length=radial_hook_length(data["bottom_radial_bar_diameter"]),
+        start_hook_angle=90.0,
     )
 
     # Top radial bars: one real rotational Allplan placement.
@@ -256,6 +265,8 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
         z_start=top_slope_start_z,
         z_end=top_slope_end_z,
         bar_count=data["top_radial_bar_count"],
+        start_hook_length=radial_hook_length(data["top_radial_bar_diameter"]),
+        start_hook_angle=-90.0,
     )
 
 
@@ -663,6 +674,8 @@ def append_radial_rebar_set(
     z_start: float,
     z_end: float,
     bar_count: int,
+    start_hook_length: float = -1.0,
+    start_hook_angle: float = 90.0,
 ) -> None:
     if diameter <= 0.0:
         return
@@ -680,6 +693,8 @@ def append_radial_rebar_set(
         diameter=diameter,
         start_point=start_point,
         end_point=end_point,
+        start_hook_length=start_hook_length,
+        start_hook_angle=start_hook_angle,
     )
 
     rotation_axis = AllplanGeo.Line3D(
@@ -759,6 +774,10 @@ def create_straight_rebar_shape_from_points(
     end_point: AllplanGeo.Point3D,
     steel_grade: int = -1,
     concrete_grade: int = -1,
+    start_hook_length: float = -1.0,
+    start_hook_angle: float = 90.0,
+    end_hook_length: float = -1.0,
+    end_hook_angle: float = 90.0,
 ):
     return create_oriented_straight_rebar_shape(
         diameter=diameter,
@@ -766,6 +785,10 @@ def create_straight_rebar_shape_from_points(
         end_point=end_point,
         steel_grade=steel_grade,
         concrete_grade=concrete_grade,
+        start_hook_length=start_hook_length,
+        start_hook_angle=start_hook_angle,
+        end_hook_length=end_hook_length,
+        end_hook_angle=end_hook_angle,
     )
 
 
@@ -775,6 +798,10 @@ def create_oriented_straight_rebar_shape(
     end_point: AllplanGeo.Point3D,
     steel_grade: int = -1,
     concrete_grade: int = -1,
+    start_hook_length: float = -1.0,
+    start_hook_angle: float = 90.0,
+    end_hook_length: float = -1.0,
+    end_hook_angle: float = 90.0,
 ):
     if diameter <= 0.0:
         raise RuntimeError("Rebar diameter must be greater than zero.")
@@ -796,15 +823,32 @@ def create_oriented_straight_rebar_shape(
         bending_shape_type=AllplanReinf.BendingShapeType.LongitudinalBar,
     )
 
-    # Create the bar locally along +X.
-    bending_shape = GeneralShapeBuilder.create_longitudinal_shape_with_anchorage(
-        from_point=AllplanGeo.Point3D(0.0, 0.0, 0.0),
-        to_point=AllplanGeo.Point3D(length, 0.0, 0.0),
-        shape_props=shape_properties,
-        concrete_cover_props=ConcreteCoverProperties.all(0.0),
-        start_anchorage=0.0,
-        end_anchorage=0.0,
-    )
+    has_hook = start_hook_length >= 0.0 or end_hook_length >= 0.0
+    if has_hook:
+        # Local X is the bar axis. Rotating local Y into global Z makes 90-degree
+        # radial hooks bend vertically before the seed bar is aligned to the slope.
+        bending_shape = GeneralShapeBuilder.create_longitudinal_shape_with_user_hooks(
+            length=length,
+            model_angles=RotationUtil(90.0, 0.0, 0.0),
+            shape_props=shape_properties,
+            concrete_cover_props=ConcreteCoverProperties.all(0.0),
+            start_hook=start_hook_length,
+            end_hook=end_hook_length,
+            start_hook_angle=start_hook_angle,
+            end_hook_angle=end_hook_angle,
+            hook_type_start=-1,
+            hook_type_end=-1,
+        )
+    else:
+        # Create the bar locally along +X.
+        bending_shape = GeneralShapeBuilder.create_longitudinal_shape_with_anchorage(
+            from_point=AllplanGeo.Point3D(0.0, 0.0, 0.0),
+            to_point=AllplanGeo.Point3D(length, 0.0, 0.0),
+            shape_props=shape_properties,
+            concrete_cover_props=ConcreteCoverProperties.all(0.0),
+            start_anchorage=0.0,
+            end_anchorage=0.0,
+        )
 
     # Rotate local +X into the real 3D bar direction.
     target_x = dx / length
@@ -919,6 +963,10 @@ def foundation_top_z(data: dict, radius: float) -> float:
     return center_h - (center_h - edge_h) * (radius - pedestal_radius) / slope_span
 
 
+def radial_hook_length(diameter: float) -> float:
+    return max(12.0 * diameter, 100.0)
+
+
 def positions_between(start: float, end: float, spacing: float) -> list[float]:
     if end < start:
         return []
@@ -975,6 +1023,8 @@ def build_result(data: dict, run_id: str) -> dict:
             "top_cap_ring_bars": top_ring_count,
             "top_real_radial_bars": data["top_radial_bar_count"],
             "bottom_real_radial_bars": data["bottom_radial_bar_count"],
+            "top_radial_90_degree_hook_length": radial_hook_length(data["top_radial_bar_diameter"]),
+            "bottom_radial_90_degree_hook_length": radial_hook_length(data["bottom_radial_bar_diameter"]),
             "pedestal_rectangular_frames": 2 * pedestal_frame_count,
             "pedestal_circular_ties": pedestal_tie_count,
             "pile_real_vertical_bar_placements": len(data["pile_centers"]),
