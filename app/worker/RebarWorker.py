@@ -237,6 +237,8 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
         bar_count=data["bottom_radial_bar_count"],
         start_hook_length=radial_hook_length(data["bottom_radial_bar_diameter"]),
         start_hook_angle=90.0,
+        end_hook_length=radial_hook_length(data["bottom_radial_bar_diameter"]),
+        end_hook_angle=90.0,
     )
 
     # Top radial bars: one real rotational Allplan placement.
@@ -267,6 +269,8 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
         bar_count=data["top_radial_bar_count"],
         start_hook_length=radial_hook_length(data["top_radial_bar_diameter"]),
         start_hook_angle=-90.0,
+        end_hook_length=radial_hook_length(data["top_radial_bar_diameter"]),
+        end_hook_angle=-90.0,
     )
 
 
@@ -676,6 +680,8 @@ def append_radial_rebar_set(
     bar_count: int,
     start_hook_length: float = -1.0,
     start_hook_angle: float = 90.0,
+    end_hook_length: float = -1.0,
+    end_hook_angle: float = 90.0,
 ) -> None:
     if diameter <= 0.0:
         return
@@ -695,6 +701,8 @@ def append_radial_rebar_set(
         end_point=end_point,
         start_hook_length=start_hook_length,
         start_hook_angle=start_hook_angle,
+        end_hook_length=end_hook_length,
+        end_hook_angle=end_hook_angle,
     )
 
     rotation_axis = AllplanGeo.Line3D(
@@ -1025,6 +1033,8 @@ def build_result(data: dict, run_id: str) -> dict:
             "bottom_real_radial_bars": data["bottom_radial_bar_count"],
             "top_radial_90_degree_hook_length": radial_hook_length(data["top_radial_bar_diameter"]),
             "bottom_radial_90_degree_hook_length": radial_hook_length(data["bottom_radial_bar_diameter"]),
+            "top_radial_90_degree_hooks_per_bar": 2,
+            "bottom_radial_90_degree_hooks_per_bar": 2,
             "pedestal_rectangular_frames": 2 * pedestal_frame_count,
             "pedestal_circular_ties": pedestal_tie_count,
             "pile_real_vertical_bar_placements": len(data["pile_centers"]),
