@@ -210,8 +210,8 @@ class Controller(vkt.Controller):
         top_ring_radii = cls._radii_between(top_inner_radius, outer_radius, data["ring_spacing"])
         top_ring_total = sum(2.0 * math.pi * radius for radius in top_ring_radii)
         top_slope_start_radius = min(max(pedestal_radius + cover, top_inner_radius), outer_radius)
-        top_length = cls._sloped_radial_length(data, top_slope_start_radius, outer_radius) + 2.0 * cls._radial_hook_length(data["top_radial_bar_diameter"])
-        bottom_length = max(0.0, outer_radius - cover) + 2.0 * cls._radial_hook_length(data["bottom_radial_bar_diameter"])
+        top_length = cls._sloped_radial_length(data, top_slope_start_radius, outer_radius) + cls._outer_radial_hook_length(data)
+        bottom_length = max(0.0, outer_radius - cover) + cls._outer_radial_hook_length(data)
 
         pedestal_clear_radius = max(0.0, pedestal_radius - cover)
         pedestal_grid_x_lengths = cls._grid_bar_lengths(pedestal_clear_radius, data["pedestal_grid_spacing"])
@@ -1141,29 +1141,23 @@ class Controller(vkt.Controller):
         top_inner = max(cover, pedestal_radius * 0.35)
         top_slope_start = min(max(pedestal_radius + cover, top_inner), outer)
         top_slope_start_z = cls._foundation_top_z(data, top_slope_start) - cover
-        bottom_hook_length = cls._radial_hook_length(data["bottom_radial_bar_diameter"])
-        top_hook_length = cls._radial_hook_length(data["top_radial_bar_diameter"])
+        outer_hook_length = cls._outer_radial_hook_length(data)
         bottom_y = sy(cover)
-        bottom_hook_top_y = sy(cover + bottom_hook_length)
+        bottom_outer_hook_top_y = sy(cover + outer_hook_length)
         bottom_rebar = (
             f'<line x1="{sx(-outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(-cover):.2f}" y2="{bottom_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
             f'<line x1="{sx(cover):.2f}" y1="{bottom_y:.2f}" x2="{sx(outer):.2f}" y2="{bottom_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
-            f'<line x1="{sx(-outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(-outer):.2f}" y2="{bottom_hook_top_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
-            f'<line x1="{sx(-cover):.2f}" y1="{bottom_y:.2f}" x2="{sx(-cover):.2f}" y2="{bottom_hook_top_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
-            f'<line x1="{sx(cover):.2f}" y1="{bottom_y:.2f}" x2="{sx(cover):.2f}" y2="{bottom_hook_top_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
-            f'<line x1="{sx(outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(outer):.2f}" y2="{bottom_hook_top_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
+            f'<line x1="{sx(-outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(-outer):.2f}" y2="{bottom_outer_hook_top_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
+            f'<line x1="{sx(outer):.2f}" y1="{bottom_y:.2f}" x2="{sx(outer):.2f}" y2="{bottom_outer_hook_top_y:.2f}" stroke="#777777" stroke-width="2.1"/>'
         )
         top_left = cls._section_top_polyline(data, -outer, -top_slope_start, scale, cx, base_y)
         top_right = cls._section_top_polyline(data, top_slope_start, outer, scale, cx, base_y)
         top_outer_z = cls._foundation_top_z(data, outer) - cover
-        top_hook_bottom_y = sy(top_slope_start_z - top_hook_length)
-        top_outer_hook_bottom_y = sy(top_outer_z - top_hook_length)
+        top_outer_hook_bottom_y = sy(top_outer_z - outer_hook_length)
         top_rebar = (
             f'<polyline points="{top_left}" fill="none" stroke="#3f3f3f" stroke-width="2.1"/>'
             f'<polyline points="{top_right}" fill="none" stroke="#3f3f3f" stroke-width="2.1"/>'
             f'<line x1="{sx(-outer):.2f}" y1="{sy(top_outer_z):.2f}" x2="{sx(-outer):.2f}" y2="{top_outer_hook_bottom_y:.2f}" stroke="#3f3f3f" stroke-width="2.1"/>'
-            f'<line x1="{sx(-top_slope_start):.2f}" y1="{sy(top_slope_start_z):.2f}" x2="{sx(-top_slope_start):.2f}" y2="{top_hook_bottom_y:.2f}" stroke="#3f3f3f" stroke-width="2.1"/>'
-            f'<line x1="{sx(top_slope_start):.2f}" y1="{sy(top_slope_start_z):.2f}" x2="{sx(top_slope_start):.2f}" y2="{top_hook_bottom_y:.2f}" stroke="#3f3f3f" stroke-width="2.1"/>'
             f'<line x1="{sx(outer):.2f}" y1="{sy(top_outer_z):.2f}" x2="{sx(outer):.2f}" y2="{top_outer_hook_bottom_y:.2f}" stroke="#3f3f3f" stroke-width="2.1"/>'
         )
 
@@ -1281,8 +1275,8 @@ class Controller(vkt.Controller):
         return length
 
     @staticmethod
-    def _radial_hook_length(diameter: float) -> float:
-        return max(12.0 * diameter, 100.0)
+    def _outer_radial_hook_length(data: dict) -> float:
+        return max(0.0, data["foundation_edge_thickness"] * 0.5)
 
     @staticmethod
     def _grid_bar_lengths(radius: float, spacing: float) -> list[float]:
