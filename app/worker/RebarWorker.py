@@ -235,6 +235,8 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
         z_start=cover,
         z_end=cover,
         bar_count=data["bottom_radial_bar_count"],
+        start_hook_length=inner_radial_hook_length(data["bottom_radial_bar_diameter"]),
+        start_hook_angle=90.0,
         end_hook_length=outer_radial_hook_length(data),
         end_hook_angle=90.0,
     )
@@ -265,6 +267,8 @@ def add_foundation_rebar_visual(elements: ModelEleList, data: dict) -> None:
         z_start=top_slope_start_z,
         z_end=top_slope_end_z,
         bar_count=data["top_radial_bar_count"],
+        start_hook_length=inner_radial_hook_length(data["top_radial_bar_diameter"]),
+        start_hook_angle=-90.0,
         end_hook_length=outer_radial_hook_length(data),
         end_hook_angle=-90.0,
     )
@@ -971,6 +975,10 @@ def outer_radial_hook_length(data: dict) -> float:
     return max(0.0, data["foundation_edge_thickness"] * 0.5)
 
 
+def inner_radial_hook_length(diameter: float) -> float:
+    return max(12.0 * diameter, 100.0)
+
+
 def positions_between(start: float, end: float, spacing: float) -> list[float]:
     if end < start:
         return []
@@ -1027,10 +1035,12 @@ def build_result(data: dict, run_id: str) -> dict:
             "top_cap_ring_bars": top_ring_count,
             "top_real_radial_bars": data["top_radial_bar_count"],
             "bottom_real_radial_bars": data["bottom_radial_bar_count"],
+            "top_radial_inner_90_degree_hook_length": inner_radial_hook_length(data["top_radial_bar_diameter"]),
+            "bottom_radial_inner_90_degree_hook_length": inner_radial_hook_length(data["bottom_radial_bar_diameter"]),
             "top_radial_outer_90_degree_hook_length": outer_radial_hook_length(data),
             "bottom_radial_outer_90_degree_hook_length": outer_radial_hook_length(data),
-            "top_radial_90_degree_hooks_per_bar": 1,
-            "bottom_radial_90_degree_hooks_per_bar": 1,
+            "top_radial_90_degree_hooks_per_bar": 2,
+            "bottom_radial_90_degree_hooks_per_bar": 2,
             "pedestal_rectangular_frames": 2 * pedestal_frame_count,
             "pedestal_circular_ties": pedestal_tie_count,
             "pile_real_vertical_bar_placements": len(data["pile_centers"]),
