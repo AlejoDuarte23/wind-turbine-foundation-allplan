@@ -22,7 +22,6 @@ except ImportError:
     RotationUtil = getattr(RotationUtilModule, "RotationUtil", RotationUtilModule)
 
 
-PROJECT_NAME = "viktor-template"
 DRAWING_FILE_NUMBER = 1
 
 
@@ -49,29 +48,6 @@ def _load_inputs() -> dict:
         return json.load(file)
 
 
-def _open_project(doc) -> None:
-    current_project_name, host_name = AllplanBaseElements.ProjectService.GetCurrentProjectNameAndHost()
-
-    if current_project_name == PROJECT_NAME:
-        _log(f"Project '{PROJECT_NAME}' is already active.")
-        return
-
-    open_result = AllplanBaseElements.ProjectService.OpenProject(
-        doc,
-        host_name,
-        PROJECT_NAME,
-    )
-
-    _log(f"OpenProject returned: {open_result}")
-
-    if open_result not in ("Project opened", "Active project", "project opened"):
-        raise RuntimeError(
-            f"Could not open Allplan project '{PROJECT_NAME}'. "
-            f"Current project was '{current_project_name}'. "
-            f"Allplan returned: '{open_result}'."
-        )
-
-
 def _load_drawing_file(doc) -> None:
     drawing_service = AllplanBaseElements.DrawingFileService()
 
@@ -92,10 +68,8 @@ def create_element(build_ele, doc) -> CreateElementResult:
         result_path = Path(__file__).with_name("result.json")
 
         _log(f"Run ID: {run_id}.")
-        _log("Opening project.")
-        _open_project(doc)
-
-        _log("Project opened.")
+        current_project_name, _host_name = AllplanBaseElements.ProjectService.GetCurrentProjectNameAndHost()
+        _log(f"Using current APN project: {current_project_name}.")
         _log(f"Loading drawing file {DRAWING_FILE_NUMBER}.")
         _load_drawing_file(doc)
 
@@ -105,7 +79,7 @@ def create_element(build_ele, doc) -> CreateElementResult:
 
         _log_model_elements(model_elements)
 
-        result = build_result(data, run_id)
+        result = build_result(data, run_id, current_project_name)
         result_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
         _log("result.json written.")
 
@@ -1022,7 +996,7 @@ def point(coords: tuple[float, float, float]):
     return AllplanGeo.Point3D(coords[0], coords[1], coords[2])
 
 
-def build_result(data: dict, run_id: str) -> dict:
+def build_result(data: dict, run_id: str, project_name: str) -> dict:
     foundation_radius = data["foundation_diameter"] / 2.0
     pedestal_radius = data["pedestal_diameter"] / 2.0
     cover = data["cover"]
@@ -1045,7 +1019,7 @@ def build_result(data: dict, run_id: str) -> dict:
 
     return {
         "run_id": run_id,
-        "project_name": PROJECT_NAME,
+        "project_name": project_name,
         "drawing_file_number": DRAWING_FILE_NUMBER,
         "created": {
             "circular_foundation": 1,
