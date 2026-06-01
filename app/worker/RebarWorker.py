@@ -1,7 +1,19 @@
 import json
 import math
+import os
+import sys
 import traceback
 from pathlib import Path
+
+try:
+    import NemAll_Python_AllplanSettings as AllplanSettings
+except ImportError:
+    AllplanSettings = None
+
+try:
+    import NemAll_Python_IFW_ElementAdapter as AllplanIFWAdapter
+except ImportError:
+    AllplanIFWAdapter = None
 
 import NemAll_Python_BaseElements as AllplanBaseElements
 import NemAll_Python_Geometry as AllplanGeo
@@ -25,14 +37,22 @@ except ImportError:
 DRAWING_FILE_NUMBER = 1
 
 
+def _clean_project_name(value: str) -> str:
+    return str(value or "").strip()
+
+
+def _worker_file(file_name: str) -> Path:
+    return Path(__file__).with_name(file_name)
+
+
 def _log(message: str) -> None:
-    log_path = Path(__file__).with_name("worker_log.txt")
+    log_path = _worker_file("worker_log.txt")
     with log_path.open("a", encoding="utf-8") as file:
         file.write(f"{message}\n")
 
 
 def _write_error(error: BaseException) -> None:
-    error_path = Path(__file__).with_name("worker_error.txt")
+    error_path = _worker_file("worker_error.txt")
     error_path.write_text(
         "".join(traceback.format_exception(type(error), error, error.__traceback__)),
         encoding="utf-8",
@@ -44,8 +64,197 @@ def check_allplan_version(build_ele, version: float) -> bool:
 
 
 def _load_inputs() -> dict:
-    with Path(__file__).with_name("inputs.json").open("r", encoding="utf-8") as file:
+    with _worker_file("inputs.json").open("r", encoding="utf-8") as file:
         return json.load(file)
+
+
+def _normalize_path(value: str) -> str:
+    if not value:
+        return ""
+    return os.path.normcase(os.path.normpath(str(value).strip().strip('"')))
+
+
+def _get_current_project_path(context: dict) -> str:
+    if AllplanSettings is None:
+        context["current_project_path_error"] = "NemAll_Python_AllplanSettings is not available."
+        return ""
+
+    try:
+        return str(AllplanSettings.AllplanPaths.GetCurPrjPath())
+    except BaseException as error:
+        context["current_project_path_error"] = repr(error)
+        return ""
+
+
+def _get_allplan_path(context: dict, output_key: str, method_name: str) -> str:
+    if AllplanSettings is None:
+        context[f"{output_key}_error"] = "NemAll_Python_AllplanSettings is not available."
+        return ""
+
+    try:
+        return str(getattr(AllplanSettings.AllplanPaths, method_name)())
+    except BaseException as error:
+        context[f"{output_key}_error"] = repr(error)
+        return ""
+
+
+def _get_active_drawing_file_number(context: dict) -> int | None:
+    try:
+        return AllplanBaseElements.DrawingFileService.GetActiveFileNumber()
+    except BaseException as error:
+        context["active_drawing_file_static_error"] = repr(error)
+
+    try:
+        drawing_service = AllplanBaseElements.DrawingFileService()
+        return drawing_service.GetActiveFileNumber()
+    except BaseException as error:
+        context["active_drawing_file_instance_error"] = repr(error)
+        return None
+
+
+def _get_drawing_file_name(context: dict, drawing_file_number: int | None) -> tuple[bool, str]:
+    if drawing_file_number is None:
+        return False, ""
+
+    try:
+        ok, name = AllplanBaseElements.DrawingFileService.GetDrawingFileName(drawing_file_number)
+        return bool(ok), str(name)
+    except BaseException as error:
+        context["drawing_file_name_static_error"] = repr(error)
+
+    try:
+        drawing_service = AllplanBaseElements.DrawingFileService()
+        ok, name = drawing_service.GetDrawingFileName(drawing_file_number)
+        return bool(ok), str(name)
+    except BaseException as error:
+        context["drawing_file_name_instance_error"] = repr(error)
+        return False, ""
+
+
+def _get_active_document_name(context: dict) -> str:
+    if AllplanIFWAdapter is None:
+        context["active_document_name_error"] = "NemAll_Python_IFW_ElementAdapter is not available."
+        return ""
+
+    try:
+        return str(AllplanIFWAdapter.DocumentNameService.GetActiveDocumentName())
+    except BaseException as error:
+        context["active_document_name_error"] = repr(error)
+        return ""
+
+
+def _collect_project_context(data: dict, stage: str) -> dict:
+    worker_context = data.get("_worker_context", {})
+    context = {
+        "stage": stage,
+        "argv": sys.argv,
+        "allplan_settings_available": AllplanSettings is not None,
+        "expected_project_name": worker_context.get("expected_project_name", ""),
+        "expected_project_dir": worker_context.get("expected_project_dir", ""),
+        "expected_project_xml": worker_context.get("expected_project_xml", ""),
+        "expected_project_dir_name": worker_context.get("expected_project_dir_name", ""),
+    }
+
+    try:
+        current_project_name, host_name = AllplanBaseElements.ProjectService.GetCurrentProjectNameAndHost()
+        context["current_project_name"] = current_project_name
+        context["host_name"] = host_name
+    except BaseException as error:
+        context["current_project_error"] = repr(error)
+        context["current_project_name"] = ""
+        context["host_name"] = ""
+
+    context["current_project_path"] = _get_current_project_path(context)
+    context["tmp_path"] = _get_allplan_path(context, "tmp_path", "GetTmpPath")
+    context["usr_path"] = _get_allplan_path(context, "usr_path", "GetUsrPath")
+
+    active_drawing_file_number = _get_active_drawing_file_number(context)
+    context["active_drawing_file_number"] = active_drawing_file_number
+    ok_drawing_file_name, drawing_file_name = _get_drawing_file_name(context, active_drawing_file_number)
+    context["active_drawing_file_name_ok"] = ok_drawing_file_name
+    context["active_drawing_file_name"] = drawing_file_name
+    context["active_document_name"] = _get_active_document_name(context)
+
+    _worker_file("context_probe.json").write_text(
+        json.dumps(context, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _log(
+        "Context probe "
+        f"{stage}: project='{context.get('current_project_name', '')}', "
+        f"path='{context.get('current_project_path', '')}'."
+    )
+    return context
+
+
+def _project_context_matches(context: dict) -> bool:
+    expected_name = _clean_project_name(context.get("expected_project_name", ""))
+    current_project_name = _clean_project_name(context.get("current_project_name", ""))
+    if expected_name and current_project_name == expected_name:
+        return True
+
+    expected_dir = _normalize_path(context.get("expected_project_dir", ""))
+    expected_xml = _normalize_path(context.get("expected_project_xml", ""))
+    current_path = _normalize_path(context.get("current_project_path", ""))
+
+    if not expected_dir or not current_path:
+        return False
+
+    return (
+        current_path == expected_dir
+        or current_path == expected_xml
+        or current_path.startswith(expected_dir + os.sep)
+    )
+
+
+def _open_expected_project(doc, data: dict, context: dict) -> dict:
+    expected_name = _clean_project_name(context.get("expected_project_name", ""))
+    if not expected_name:
+        return context
+
+    current_name = _clean_project_name(context.get("current_project_name", ""))
+    if current_name == expected_name:
+        return context
+
+    host_name = _clean_project_name(context.get("host_name", "")) or "localhost"
+    _log(f"Opening registered Allplan project '{expected_name}' on host '{host_name}'.")
+
+    open_result = AllplanBaseElements.ProjectService.OpenProject(
+        doc,
+        host_name,
+        expected_name,
+    )
+
+    _log(f"OpenProject returned: {open_result}")
+    return _collect_project_context(data, "after_open_project")
+
+
+def _assert_expected_project_context(context: dict) -> None:
+    expected_dir = context.get("expected_project_dir", "")
+    expected_name = _clean_project_name(context.get("expected_project_name", ""))
+    if not expected_dir and not expected_name:
+        _log("No expected project was provided; skipping project context validation.")
+        return
+
+    if _project_context_matches(context):
+        _log(
+            "Validated active Allplan project: "
+            f"name='{_clean_project_name(context.get('current_project_name', ''))}', "
+            f"path='{context.get('current_project_path', '')}'."
+        )
+        return
+
+    raise RuntimeError(
+        "Allplan is running the PythonPart in the wrong project. "
+        f"Expected project '{expected_name}' at path '{expected_dir}', "
+        f"but Allplan reported project '{_clean_project_name(context.get('current_project_name', ''))}' "
+        f"at path '{context.get('current_project_path', '')}'. "
+        "Make sure the registered project exists in Allplan project management and is not locked."
+    )
+
+
+def _public_inputs(data: dict) -> dict:
+    return {key: value for key, value in data.items() if not key.startswith("_")}
 
 
 def _load_drawing_file(doc) -> None:
@@ -64,14 +273,19 @@ def create_element(build_ele, doc) -> CreateElementResult:
         data = _load_inputs()
         run_id = data["run_id"]
 
-        done_marker = Path(__file__).with_name("worker_done.txt")
-        result_path = Path(__file__).with_name("result.json")
+        done_marker = _worker_file("worker_done.txt")
+        result_path = _worker_file("result.json")
 
         _log(f"Run ID: {run_id}.")
-        current_project_name, _host_name = AllplanBaseElements.ProjectService.GetCurrentProjectNameAndHost()
-        _log(f"Using current APN project: {current_project_name}.")
+        context = _collect_project_context(data, "before_open_project")
+        if not _project_context_matches(context):
+            context = _open_expected_project(doc, data, context)
+        _assert_expected_project_context(context)
+
         _log(f"Loading drawing file {DRAWING_FILE_NUMBER}.")
         _load_drawing_file(doc)
+        context = _collect_project_context(data, "after_load_drawing_file")
+        _assert_expected_project_context(context)
 
         _log("Drawing file loaded.")
         _log("Creating circular foundation, piles, and visual rebar geometry.")
@@ -79,7 +293,7 @@ def create_element(build_ele, doc) -> CreateElementResult:
 
         _log_model_elements(model_elements)
 
-        result = build_result(data, run_id, current_project_name)
+        result = build_result(data, run_id, _clean_project_name(context.get("current_project_name", "")))
         result_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
         _log("result.json written.")
 
@@ -1048,5 +1262,5 @@ def build_result(data: dict, run_id: str, project_name: str) -> dict:
             "pile_real_hoop_stacks": len(data["pile_centers"]),
             "pile_real_hoops": len(data["pile_centers"]) * pile_hoop_count,
         },
-        "inputs": data,
+        "inputs": _public_inputs(data),
     }

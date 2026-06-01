@@ -111,7 +111,7 @@ class Controller(vkt.Controller):
 
         files = [
             ("inputs.json", vkt.File.from_data(json.dumps(worker_input, indent=2))),
-            ("template_project.apn", vkt.File.from_path(ALLPLAN_WORKER_DIR / "my-viktor-project-template.apn")),
+            ("template_project.zip", vkt.File.from_path(ALLPLAN_WORKER_DIR / "viktor-template.prj.zip")),
             ("RebarWorker.pyp", vkt.File.from_path(ALLPLAN_WORKER_DIR / "RebarWorker.pyp")),
             ("RebarWorker.py", vkt.File.from_path(ALLPLAN_WORKER_DIR / "RebarWorker.py")),
         ]
@@ -119,15 +119,15 @@ class Controller(vkt.Controller):
         analysis = PythonAnalysis(
             script=vkt.File.from_path(ALLPLAN_WORKER_DIR / "run_allplan_model.py"),
             files=files,
-            output_filenames=["result_project.apn", "result.json", "worker_log.txt"],
+            output_filenames=["result_project.zip", "result.json", "worker_log.txt"],
         )
-        vkt.progress_message("Starting Allplan APN rebar worker.")
+        vkt.progress_message("Starting Allplan native rebar worker.")
         analysis.execute(timeout=900)
-        result_project_apn = analysis.get_output_file("result_project.apn")
+        result_project_zip = analysis.get_output_file("result_project.zip")
         analysis.get_output_file("result.json")
         analysis.get_output_file("worker_log.txt")
 
-        return vkt.DownloadResult(result_project_apn, f"wind_turbine_foundation_{run_id}.apn")
+        return vkt.DownloadResult(result_project_zip, f"wind_turbine_foundation_{run_id}.zip")
 
     @classmethod
     def _worker_input(cls, params) -> dict:
