@@ -121,7 +121,7 @@ class Controller(vkt.Controller):
             files=files,
             output_filenames=["result_project.zip", "result.json", "worker_log.txt"],
         )
-        vkt.progress_message("Starting Allplan visual rebar worker.")
+        vkt.progress_message("Starting Allplan native rebar worker.")
         analysis.execute(timeout=900)
         result_project_zip = analysis.get_output_file("result_project.zip")
         analysis.get_output_file("result.json")

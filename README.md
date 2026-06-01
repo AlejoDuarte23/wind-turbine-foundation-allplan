@@ -1,91 +1,41 @@
-VIKTOR demo app for a wind turbine foundation visual rebar workflow in Allplan.
+VIKTOR demo app for a wind turbine foundation native rebar workflow in Allplan.
 
-The app keeps the reinforcement as regular 3D visual geometry so the workflow stays stable and easy to inspect:
+The app generates a wind turbine foundation Allplan project from VIKTOR inputs:
 
 - Parametrize a circular pile cap / raft with a raised circular pedestal.
 - Configure a circular pile layout below the foundation.
-- Configure concrete cover, radial foundation bars, circular base rings, pedestal grid bars, and pile cage visuals.
+- Configure concrete cover, radial foundation bars, circular base rings, pedestal grid bars, and pile cages.
 - Review a clean grayscale 2D plan and section sketch in VIKTOR.
 - Send the same parameters to an Allplan PythonPart worker.
-- Download an Allplan project with the circular foundation, pedestal, piles, and visible visual rebar layout.
+- Download an Allplan project ZIP with the circular foundation, pedestal, piles, and reinforcement layout.
 
 The foundation cap rebar is trimmed around pile footprints when it would clash with pile positions. This is a demo-oriented visual rule, not a reinforcement-code detailing engine.
 
-The current version uses regular 3D geometry to show the rebar in Allplan. Creating native Allplan reinforcement entities is still work in progress.
+The Allplan worker uses a clean project ZIP template for each run. It resets the registered Allplan project `viktor-template` under `C:\Data\Allplan\Allplan 2026\Prj\viktor-template.prj`, opens it with Allplan's `/l ...\Project1.Dat.xml` startup argument, runs the PythonPart with `-o`, and returns the modified project as `result_project.zip`. The project root and name can be overridden with `ALLPLAN_PROJECTS_DIR` and `ALLPLAN_PROJECT_NAME` on the worker machine.
 
-## Allplan project registration and check guide
+## First-time Allplan setup
 
-### 1. Download the empty project
+Before running the VIKTOR worker on a new Windows machine, create or import a registered Allplan project named `viktor-template`.
 
-Download the provided empty Allplan project ZIP.
-
-This ZIP is the clean starting template for the worker.
-
-### 2. Register the project in Allplan
-
-Open Allplan and import the empty project ZIP:
-
-```text
-Project and Resource Management
--> Import Project
--> Select the empty project ZIP
--> Import
-```
-
-After importing, confirm that the project name is exactly:
-
-```text
-viktor-template
-```
-
-The worker opens the Allplan project by this exact name.
-
-### 3. Check the local project folder
-
-After import, confirm that this folder exists:
+The default expected project folder is:
 
 ```text
 C:\Data\Allplan\Allplan 2026\Prj\viktor-template.prj
 ```
 
-This is the local Allplan project folder.
-
-It should be the empty/clean template project before running the worker. It is not a single empty file; it is an Allplan project folder with internal Allplan files.
-
-### 4. Close Allplan before running
-
-Close Allplan completely before starting the VIKTOR worker.
-
-This avoids locked project files and makes sure the worker can replace the clean template correctly.
-
-### 5. Run from VIKTOR
-
-In VIKTOR, run:
+The worker expects this file to exist:
 
 ```text
-Download Allplan project
+C:\Data\Allplan\Allplan 2026\Prj\viktor-template.prj\Project1.Dat.xml
 ```
 
-The app sends the template project ZIP, the PythonPart, the Python script, and the input file to the Allplan worker.
+In Allplan Project Management, confirm that `viktor-template` appears under `Local`. This project is used as a disposable worker target: the worker closes existing Allplan sessions, resets the project folder from `viktor-template.prj.zip`, runs the PythonPart, and returns the modified project ZIP. Do not use `viktor-template` for manual production work.
 
-### 6. Check what the worker creates
+If the worker machine uses a different project root or project name, set these environment variables before starting the VIKTOR worker:
 
-During the run, the worker uses this local project folder:
-
-```text
-C:\Data\Allplan\Allplan 2026\Prj\viktor-template.prj
+```powershell
+$env:ALLPLAN_PROJECTS_DIR = "C:\Data\Allplan\Allplan 2026\Prj"
+$env:ALLPLAN_PROJECT_NAME = "viktor-template"
 ```
 
-It also creates/copies worker files here:
-
-```text
-%USERPROFILE%\Documents\Nemetschek\Allplan\2026\Usr\Local\PythonParts\ViktorWorker
-```
-
-and here:
-
-```text
-%USERPROFILE%\Documents\Nemetschek\Allplan\2026\Usr\Local\PythonPartsScripts\ViktorWorker
-```
-
-The runner script uses these Allplan 2026 paths directly.
+During the run, the worker also creates/copies worker files under `%USERPROFILE%\Documents\Nemetschek\Allplan\2026\Usr\Local\PythonParts\ViktorWorker` and `%USERPROFILE%\Documents\Nemetschek\Allplan\2026\Usr\Local\PythonPartsScripts\ViktorWorker`.
