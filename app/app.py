@@ -36,7 +36,7 @@ class Parametrization(vkt.Parametrization):
     reinforcement.ring_spacing = vkt.NumberField("Circular base bar spacing", default=550.0, min=150.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_bar_diameter = vkt.NumberField("Pedestal grid bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_spacing = vkt.NumberField("Pedestal grid spacing", default=350.0, min=100.0, suffix="mm", flex=50)
-    reinforcement.pedestal_frame_embed_depth = vkt.NumberField("Pedestal frame embed depth", default=500.0, min=0.0, suffix="mm", flex=50)
+    reinforcement.pedestal_frame_embed_depth = vkt.NumberField("Pedestal frame embed depth", default=1200.0, min=0.0, suffix="mm", flex=50)
     reinforcement.pedestal_tie_diameter = vkt.NumberField("Pedestal tie diameter", default=12.0, min=6.0, suffix="mm", flex=50)
     reinforcement.pedestal_tie_spacing = vkt.NumberField("Pedestal tie spacing", default=250.0, min=75.0, suffix="mm", flex=50)
     reinforcement.pile_vertical_diameter = vkt.NumberField("Pile vertical bar diameter", default=16.0, min=8.0, suffix="mm", flex=50)
@@ -220,7 +220,11 @@ class Controller(vkt.Controller):
         )
         pedestal_grid_x_lengths = cls._rectangular_frame_lengths(pedestal_frame_radius, data["pedestal_grid_spacing"], pedestal_frame_height)
         pedestal_grid_y_lengths = cls._rectangular_frame_lengths(pedestal_frame_radius, data["pedestal_grid_spacing"], pedestal_frame_height)
-        pedestal_tie_count = cls._bar_count(data["pedestal_height"] - 2.0 * cover, data["pedestal_tie_spacing"])
+        pedestal_tie_height = max(
+            0.0,
+            data["foundation_center_thickness"] + data["pedestal_height"] - cover - cls._pedestal_frame_bottom_z(data),
+        )
+        pedestal_tie_count = cls._bar_count(pedestal_tie_height, data["pedestal_tie_spacing"])
         pedestal_tie_length = 2.0 * math.pi * pedestal_clear_radius
 
         pile_rebar_bottom_z = -data["pile_depth"] + cover
@@ -999,14 +1003,17 @@ class Controller(vkt.Controller):
         grid_bottom_z = cls._pedestal_frame_bottom_z(data)
         grid_top_z = center_h + pedestal_h - cover
         tie_half = max(0.0, pedestal_radius - cover)
-        tie_bottom_z = center_h + cover
+        tie_bottom_z = grid_bottom_z
         dot_radius = 3.05
         pedestal_section_rebar.append(
             f'<rect x="{sx(-grid_half):.2f}" y="{sy(grid_top_z):.2f}" '
             f'width="{2.0 * grid_half * scale:.2f}" height="{(grid_top_z - grid_bottom_z) * scale:.2f}" '
             f'fill="none" stroke="#2f2f2f" stroke-width="1.5"/>'
         )
-        tie_positions = cls._equal_values(tie_bottom_z + data["pedestal_tie_spacing"] * 0.5, grid_top_z - data["pedestal_tie_spacing"] * 0.5, 5)
+        tie_positions = cls._sample_positions(
+            cls._positions_between(tie_bottom_z, grid_top_z, data["pedestal_tie_spacing"]),
+            max_count=12,
+        )
         for z in tie_positions:
             pedestal_section_rebar.append(
                 f'<line x1="{sx(-tie_half):.2f}" y1="{sy(z):.2f}" '
@@ -1114,7 +1121,23 @@ class Controller(vkt.Controller):
 
     @staticmethod
     def _pedestal_frame_bottom_z(data: dict) -> float:
-        return max(data["cover"], data["foundation_center_thickness"] - data.get("pedestal_frame_embed_depth", 0.0))
+        center_h = data["foundation_center_thickness"]
+        requested_bottom_z = center_h - data.get("pedestal_frame_embed_depth", center_h * 2.0 / 3.0)
+        lower_third_z = center_h / 3.0
+        bottom_rebar_clearance_z = data["cover"] + max(
+            250.0,
+            3.0
+            * max(
+                data.get("bottom_radial_bar_diameter", 0.0),
+                data.get("ring_bar_diameter", 0.0),
+                data.get("pedestal_grid_bar_diameter", 0.0),
+                data.get("pedestal_tie_diameter", 0.0),
+            ),
+        )
+        return min(
+            center_h - data["cover"],
+            max(requested_bottom_z, lower_third_z, bottom_rebar_clearance_z),
+        )
 
     @staticmethod
     def _grid_bar_lengths(radius: float, spacing: float) -> list[float]:

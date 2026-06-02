@@ -466,7 +466,7 @@ def add_pedestal_rebar_visual(elements: ModelEleList, data: dict) -> None:
     frame_radius = pedestal_frame_radius(data)
     bar_diameter = data["pedestal_grid_bar_diameter"]
     frame_z_bottom = pedestal_frame_bottom_z(data)
-    tie_z_bottom = data["foundation_center_thickness"] + data["cover"]
+    tie_z_bottom = frame_z_bottom
     z_top = data["foundation_center_thickness"] + data["pedestal_height"] - data["cover"]
     steel_grade = data.get("steel_grade", -1)
     concrete_grade = data.get("concrete_grade", -1)
@@ -1179,7 +1179,23 @@ def pedestal_frame_radius(data: dict) -> float:
 
 
 def pedestal_frame_bottom_z(data: dict) -> float:
-    return max(data["cover"], data["foundation_center_thickness"] - data.get("pedestal_frame_embed_depth", 0.0))
+    center_h = data["foundation_center_thickness"]
+    requested_bottom_z = center_h - data.get("pedestal_frame_embed_depth", center_h * 2.0 / 3.0)
+    lower_third_z = center_h / 3.0
+    bottom_rebar_clearance_z = data["cover"] + max(
+        250.0,
+        3.0
+        * max(
+            data.get("bottom_radial_bar_diameter", 0.0),
+            data.get("ring_bar_diameter", 0.0),
+            data.get("pedestal_grid_bar_diameter", 0.0),
+            data.get("pedestal_tie_diameter", 0.0),
+        ),
+    )
+    return min(
+        center_h - data["cover"],
+        max(requested_bottom_z, lower_third_z, bottom_rebar_clearance_z),
+    )
 
 
 def rectangular_frame_count(radius: float, spacing: float) -> int:
@@ -1225,7 +1241,7 @@ def build_result(data: dict, run_id: str, project_name: str) -> dict:
     pedestal_frame_count = rectangular_frame_count(frame_radius, data["pedestal_grid_spacing"])
     pedestal_tie_count = len(
         positions_between(
-            data["foundation_center_thickness"] + cover,
+            pedestal_frame_bottom_z(data),
             data["foundation_center_thickness"] + data["pedestal_height"] - cover,
             data["pedestal_tie_spacing"],
         )
