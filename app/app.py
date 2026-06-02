@@ -23,32 +23,15 @@ class Parametrization(vkt.Parametrization):
     geometry.foundation_center_thickness = vkt.NumberField("Foundation center thickness", default=1800.0, min=500.0, suffix="mm", flex=50)
     geometry.pedestal_diameter = vkt.NumberField("Pedestal diameter", default=4200.0, min=1000.0, suffix="mm", flex=50)
     geometry.pedestal_height = vkt.NumberField("Pedestal height", default=2200.0, min=500.0, suffix="mm", flex=50)
-    geometry.pile_count = vkt.NumberField("Pile count", default=12, min=3, max=32, flex=50)
-    geometry.pile_ring_radius = vkt.NumberField("Pile ring radius", default=5200.0, min=1000.0, suffix="mm", flex=50)
+    geometry.pile_count = vkt.IntegerField("Number of piles", default=12, min=3, max=32, flex=50)
+    geometry.pile_edge_distance = vkt.NumberField("Pile edge distance", default=600.0, min=0.0, suffix="mm", flex=50)
     geometry.pile_diameter = vkt.NumberField("Pile diameter", default=700.0, min=250.0, suffix="mm", flex=50)
-    geometry.pile_depth = vkt.NumberField("Pile depth", default=12000.0, min=1000.0, suffix="mm", flex=50)
+    geometry.pile_depth = vkt.NumberField("Pile length", default=12000.0, min=1000.0, suffix="mm", flex=50)
 
     reinforcement = vkt.Section("Reinforcement", initially_expanded=True)
     reinforcement.cover = vkt.NumberField("Concrete cover", default=75.0, min=25.0, max=200.0, suffix="mm", flex=50)
-    reinforcement.use_symmetric_radial_bars = vkt.BooleanField("Use same top and bottom radial bars", default=True, flex=100)
-    reinforcement.top_radial_bar_diameter = vkt.NumberField("Top radial bar diameter", default=25.0, min=8.0, suffix="mm", flex=50)
-    reinforcement.top_radial_bar_count = vkt.NumberField("Top radial bar count", default=32, min=8, max=96, flex=50)
-    reinforcement.bottom_radial_bar_diameter = vkt.NumberField(
-        "Bottom radial bar diameter",
-        default=25.0,
-        min=8.0,
-        suffix="mm",
-        flex=50,
-        visible=vkt.IsFalse(vkt.Lookup("reinforcement.use_symmetric_radial_bars")),
-    )
-    reinforcement.bottom_radial_bar_count = vkt.NumberField(
-        "Bottom radial bar count",
-        default=32,
-        min=8,
-        max=96,
-        flex=50,
-        visible=vkt.IsFalse(vkt.Lookup("reinforcement.use_symmetric_radial_bars")),
-    )
+    reinforcement.top_radial_bar_diameter = vkt.NumberField("Radial bar diameter", default=25.0, min=8.0, suffix="mm", flex=50)
+    reinforcement.top_radial_bar_count = vkt.NumberField("Radial bar count", default=32, min=8, max=96, flex=50)
     reinforcement.ring_bar_diameter = vkt.NumberField("Circular base bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
     reinforcement.ring_spacing = vkt.NumberField("Circular base bar spacing", default=550.0, min=150.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_bar_diameter = vkt.NumberField("Pedestal grid bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
@@ -136,23 +119,17 @@ class Controller(vkt.Controller):
         foundation_radius = foundation_diameter / 2.0
         pile_diameter = float(params.geometry.pile_diameter)
         cover = float(params.reinforcement.cover)
-        max_pile_ring_radius = max(0.0, foundation_radius - pile_diameter / 2.0 - cover)
-        pile_ring_radius = min(float(params.geometry.pile_ring_radius), max_pile_ring_radius)
+        raw_pile_edge_distance = cls._pile_edge_distance_input(params, foundation_radius)
+        min_pile_edge_distance = pile_diameter / 2.0 + cover
+        max_pile_edge_distance = max(min_pile_edge_distance, foundation_radius)
+        pile_edge_distance = min(max(raw_pile_edge_distance, min_pile_edge_distance), max_pile_edge_distance)
+        pile_ring_radius = max(0.0, foundation_radius - pile_edge_distance)
         edge_thickness = float(params.geometry.foundation_edge_thickness)
         center_thickness = max(float(params.geometry.foundation_center_thickness), edge_thickness)
-        use_symmetric_radial_bars = bool(params.reinforcement.use_symmetric_radial_bars)
         top_radial_bar_diameter = float(params.reinforcement.top_radial_bar_diameter)
         top_radial_bar_count = int(params.reinforcement.top_radial_bar_count)
-        bottom_radial_bar_diameter = (
-            top_radial_bar_diameter
-            if use_symmetric_radial_bars
-            else float(params.reinforcement.bottom_radial_bar_diameter)
-        )
-        bottom_radial_bar_count = (
-            top_radial_bar_count
-            if use_symmetric_radial_bars
-            else int(params.reinforcement.bottom_radial_bar_count)
-        )
+        bottom_radial_bar_diameter = top_radial_bar_diameter
+        bottom_radial_bar_count = top_radial_bar_count
 
         return {
             "foundation_diameter": foundation_diameter,
@@ -161,12 +138,13 @@ class Controller(vkt.Controller):
             "pedestal_diameter": pedestal_diameter,
             "pedestal_height": float(params.geometry.pedestal_height),
             "pile_count": int(params.geometry.pile_count),
+            "pile_edge_distance": pile_edge_distance,
+            "pile_clear_edge_distance": max(0.0, pile_edge_distance - pile_diameter / 2.0),
             "pile_ring_radius": pile_ring_radius,
             "pile_diameter": pile_diameter,
             "pile_depth": float(params.geometry.pile_depth),
             "pile_centers": cls.get_pile_centers(int(params.geometry.pile_count), pile_ring_radius),
             "cover": cover,
-            "use_symmetric_radial_bars": use_symmetric_radial_bars,
             "top_radial_bar_diameter": top_radial_bar_diameter,
             "top_radial_bar_count": top_radial_bar_count,
             "bottom_radial_bar_diameter": bottom_radial_bar_diameter,
@@ -184,6 +162,16 @@ class Controller(vkt.Controller):
             "pile_hoop_diameter": float(params.reinforcement.pile_hoop_diameter),
             "pile_hoop_spacing": float(params.reinforcement.pile_hoop_spacing),
         }
+
+    @staticmethod
+    def _pile_edge_distance_input(params, foundation_radius: float) -> float:
+        if hasattr(params.geometry, "pile_edge_distance"):
+            return float(params.geometry.pile_edge_distance)
+
+        if hasattr(params.geometry, "pile_ring_radius"):
+            return max(0.0, foundation_radius - float(params.geometry.pile_ring_radius))
+
+        return 600.0
 
     @staticmethod
     def get_pile_centers(pile_count: int, pile_ring_radius: float) -> list[dict[str, float | str]]:
@@ -407,6 +395,7 @@ class Controller(vkt.Controller):
       <div class="meta">
         <span>Cover {data["cover"]:.0f} mm</span>
         <span>Piles {data["pile_count"]}</span>
+        <span>Pile edge {data["pile_edge_distance"]:.0f} mm</span>
         <span>Foundation Ø {data["foundation_diameter"]:.0f} mm</span>
         <span>Total visual length {total_length:.1f} m</span>
       </div>

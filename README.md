@@ -3,7 +3,7 @@ VIKTOR demo app for a wind turbine foundation native rebar workflow in Allplan.
 The app generates a wind turbine foundation Allplan project from VIKTOR inputs:
 
 - Parametrize a circular pile cap / raft with a raised circular pedestal.
-- Configure a circular pile layout below the foundation.
+- Configure a circular pile layout below the foundation using pile count, pile diameter, pile length, and pile edge distance.
 - Configure concrete cover, radial foundation bars, circular base rings, pedestal grid bars, and pile cages.
 - Review a clean grayscale 2D plan and section sketch in VIKTOR.
 - Send the same parameters to an Allplan PythonPart worker.
