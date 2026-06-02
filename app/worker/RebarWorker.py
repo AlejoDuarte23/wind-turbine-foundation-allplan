@@ -1179,22 +1179,7 @@ def pedestal_frame_radius(data: dict) -> float:
 
 
 def pedestal_frame_bottom_z(data: dict) -> float:
-    center_h = data["foundation_center_thickness"]
-    bottom_slab_embed_z = data["foundation_edge_thickness"] * 0.875
-    bottom_rebar_clearance_z = data["cover"] + max(
-        250.0,
-        3.0
-        * max(
-            data.get("bottom_radial_bar_diameter", 0.0),
-            data.get("ring_bar_diameter", 0.0),
-            data.get("pedestal_grid_bar_diameter", 0.0),
-            data.get("pedestal_tie_diameter", 0.0),
-        ),
-    )
-    return min(
-        center_h - data["cover"],
-        max(bottom_slab_embed_z, bottom_rebar_clearance_z),
-    )
+    return data["cover"]
 
 
 def rectangular_frame_count(radius: float, spacing: float) -> int:
