@@ -20,7 +20,7 @@ class Parametrization(vkt.Parametrization):
     )
     geometry.foundation_diameter = vkt.NumberField("Foundation diameter", default=14500.0, min=5000.0, suffix="mm", flex=50)
     geometry.foundation_edge_thickness = vkt.NumberField("Foundation edge thickness", default=1200.0, min=300.0, suffix="mm", flex=50)
-    geometry.foundation_center_thickness = vkt.NumberField("Foundation center thickness", default=1800.0, min=500.0, suffix="mm", flex=50)
+    geometry.foundation_center_thickness = vkt.NumberField("Foundation center thickness", default=2000.0, min=500.0, suffix="mm", flex=50)
     geometry.pedestal_diameter = vkt.NumberField("Pedestal diameter", default=6000.0, min=1000.0, suffix="mm", flex=50)
     geometry.pedestal_height = vkt.NumberField("Pedestal height", default=1000.0, min=500.0, suffix="mm", flex=50)
     geometry.pile_count = vkt.IntegerField("Number of piles", default=24, min=3, max=32, flex=50)
