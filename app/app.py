@@ -1016,22 +1016,22 @@ class Controller(vkt.Controller):
         )
         for z in tie_positions:
             embedded = z < center_h
-            stroke = "#4f4f4f" if embedded else "#777777"
-            stroke_width = 1.15 if embedded else 0.85
+            stroke = "#8f8f8f" if embedded else "#b0b0b0"
+            stroke_width = 0.75 if embedded else 0.6
             pedestal_section_rebar.append(
                 f'<line x1="{sx(-tie_half):.2f}" y1="{sy(z):.2f}" '
                 f'x2="{sx(tie_half):.2f}" y2="{sy(z):.2f}" '
                 f'stroke="{stroke}" stroke-width="{stroke_width:.2f}"/>'
             )
-            pedestal_section_rebar.append(cls._section_dot(sx(-tie_half), sy(z), 2.15, stroke))
-            pedestal_section_rebar.append(cls._section_dot(sx(tie_half), sy(z), 2.15, stroke))
+            pedestal_section_rebar.append(cls._section_dot(sx(-tie_half), sy(z), 1.65, stroke))
+            pedestal_section_rebar.append(cls._section_dot(sx(tie_half), sy(z), 1.65, stroke))
 
         embedded_bar_positions = cls._equal_values(-grid_half + 220.0, grid_half - 220.0, 6)
         for x_offset in embedded_bar_positions:
             pedestal_section_rebar.append(
                 f'<line x1="{sx(x_offset):.2f}" y1="{sy(center_h - cover):.2f}" '
                 f'x2="{sx(x_offset):.2f}" y2="{sy(grid_bottom_z):.2f}" '
-                f'stroke="#575757" stroke-width="0.8" stroke-dasharray="5 6"/>'
+                f'stroke="#d0d0d0" stroke-width="0.55" stroke-dasharray="4 7"/>'
             )
         section_bar_positions = cls._equal_values(-grid_half + 160.0, grid_half - 160.0, 10)
         for x_offset in section_bar_positions:
