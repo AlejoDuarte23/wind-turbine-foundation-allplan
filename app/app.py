@@ -75,7 +75,7 @@ class Controller(vkt.Controller):
     label = "Wind Turbine Foundation"
     parametrization = Parametrization(width=36)
 
-    @vkt.GeometryView("Concrete geometry", duration_guess=1, x_axis_to_right=True)
+    @vkt.GeometryView("3D geometry", duration_guess=1, x_axis_to_right=True, up_axis="Z")
     def visual_model(self, params, **kwargs):
         data = self._worker_input(params)
         geometry = self._geometry_model(data)
@@ -764,29 +764,14 @@ class Controller(vkt.Controller):
     @classmethod
     def _geometry_model(cls, data: dict):
         objects = []
-        concrete = vkt.Material(color=(213, 213, 208), opacity=0.62, roughness=1.0, metalness=0.0)
-        pile_concrete = vkt.Material(color=(188, 188, 184), opacity=0.72, roughness=1.0, metalness=0.0)
+        concrete = vkt.Material(color=(180, 170, 155), roughness=0.8)
+        pile_concrete = vkt.Material(color=(130, 120, 110), roughness=0.7)
 
         foundation_radius = data["foundation_diameter"] / 2.0
         pedestal_radius = data["pedestal_diameter"] / 2.0
-        edge_h = data["foundation_edge_thickness"]
         center_h = data["foundation_center_thickness"]
 
-        cls._add_concrete_cylinder(objects, foundation_radius, 0.0, edge_h, concrete, "foundation-edge-cylinder")
-
-        slope_height = max(0.0, center_h - edge_h)
-        if slope_height > 0.0 and foundation_radius > pedestal_radius:
-            cls._add_concrete_frustum(
-                objects=objects,
-                bottom_radius=foundation_radius,
-                top_radius=pedestal_radius,
-                z_min=edge_h,
-                height=slope_height,
-                material=concrete,
-                identifier="foundation-slope-frustum",
-                segments=96,
-            )
-
+        cls._add_foundation_body_mesh(objects, data, concrete)
         cls._add_concrete_cylinder(
             objects,
             pedestal_radius,
@@ -805,90 +790,41 @@ class Controller(vkt.Controller):
                 pile_concrete,
                 f"pile-{index}",
                 center=(pile["x"], pile["y"]),
-                segments=32,
             )
 
         return vkt.Group(objects)
 
     @classmethod
-    def _add_concrete_cylinder(
-        cls,
-        objects: list,
-        radius: float,
-        z_min: float,
-        height: float,
-        material,
-        identifier: str,
-        center: tuple[float, float] = (0.0, 0.0),
-        segments: int = 72,
-    ) -> None:
-        if radius <= 0.0 or height <= 0.0:
-            return
-
-        line = vkt.Line(vkt.Point(center[0], center[1], z_min), vkt.Point(center[0], center[1], z_min + height))
-        objects.append(vkt.Extrusion(cls._circle_profile(radius, segments), line, material=material, identifier=identifier))
-
-    @classmethod
-    def _add_concrete_frustum(
-        cls,
-        objects: list,
-        bottom_radius: float,
-        top_radius: float,
-        z_min: float,
-        height: float,
-        material,
-        identifier: str,
-        center: tuple[float, float] = (0.0, 0.0),
-        segments: int = 96,
-    ) -> None:
-        if bottom_radius <= 0.0 or top_radius <= 0.0 or height <= 0.0:
-            return
-
-        cx, cy = center
-        z_bottom = z_min
-        z_top = z_min + height
-
-        bottom_center = vkt.Point(cx, cy, z_bottom)
-        top_center = vkt.Point(cx, cy, z_top)
-
-        bottom_points = []
-        top_points = []
-
-        for index in range(segments):
-            angle = 2.0 * math.pi * index / segments
-            cos_a = math.cos(angle)
-            sin_a = math.sin(angle)
-
-            bottom_points.append(
-                vkt.Point(
-                    cx + bottom_radius * cos_a,
-                    cy + bottom_radius * sin_a,
-                    z_bottom,
-                )
-            )
-            top_points.append(
-                vkt.Point(
-                    cx + top_radius * cos_a,
-                    cy + top_radius * sin_a,
-                    z_top,
-                )
-            )
-
+    def _add_foundation_body_mesh(cls, objects: list, data: dict, material) -> None:
+        foundation_radius = data["foundation_diameter"] / 2.0
+        pedestal_radius = data["pedestal_diameter"] / 2.0
+        edge_h = data["foundation_edge_thickness"]
+        center_h = data["foundation_center_thickness"]
+        segments = 96
         triangles = []
 
+        bottom_center = vkt.Point(0.0, 0.0, 0.0)
+        top_center = vkt.Point(0.0, 0.0, center_h)
+
         for index in range(segments):
-            next_index = (index + 1) % segments
+            angle_0 = 2.0 * math.pi * index / segments
+            angle_1 = 2.0 * math.pi * (index + 1) / segments
+            cos_0, sin_0 = math.cos(angle_0), math.sin(angle_0)
+            cos_1, sin_1 = math.cos(angle_1), math.sin(angle_1)
 
-            b0 = bottom_points[index]
-            b1 = bottom_points[next_index]
-            t0 = top_points[index]
-            t1 = top_points[next_index]
+            inner_top_0 = vkt.Point(pedestal_radius * cos_0, pedestal_radius * sin_0, center_h)
+            inner_top_1 = vkt.Point(pedestal_radius * cos_1, pedestal_radius * sin_1, center_h)
+            outer_bottom_0 = vkt.Point(foundation_radius * cos_0, foundation_radius * sin_0, 0.0)
+            outer_bottom_1 = vkt.Point(foundation_radius * cos_1, foundation_radius * sin_1, 0.0)
+            outer_top_0 = vkt.Point(foundation_radius * cos_0, foundation_radius * sin_0, edge_h)
+            outer_top_1 = vkt.Point(foundation_radius * cos_1, foundation_radius * sin_1, edge_h)
 
-            triangles.append(vkt.Triangle(b0, b1, t1))
-            triangles.append(vkt.Triangle(b0, t1, t0))
-
-            triangles.append(vkt.Triangle(bottom_center, b1, b0))
-            triangles.append(vkt.Triangle(top_center, t0, t1))
+            triangles.append(vkt.Triangle(bottom_center, outer_bottom_1, outer_bottom_0))
+            triangles.append(vkt.Triangle(top_center, inner_top_0, inner_top_1))
+            triangles.append(vkt.Triangle(inner_top_0, outer_top_0, outer_top_1))
+            triangles.append(vkt.Triangle(inner_top_0, outer_top_1, inner_top_1))
+            triangles.append(vkt.Triangle(outer_bottom_0, outer_bottom_1, outer_top_1))
+            triangles.append(vkt.Triangle(outer_bottom_0, outer_top_1, outer_top_0))
 
         try:
             objects.append(
@@ -896,7 +832,7 @@ class Controller(vkt.Controller):
                     triangles,
                     material=material,
                     skip_duplicate_vertices_check=True,
-                    identifier=identifier,
+                    identifier="foundation-body",
                 )
             )
         except TypeError:
@@ -908,173 +844,38 @@ class Controller(vkt.Controller):
                 )
             )
 
-    @staticmethod
-    def _circle_profile(radius: float, segments: int) -> list:
-        points = [
-            vkt.Point(radius * math.cos(2.0 * math.pi * index / segments), radius * math.sin(2.0 * math.pi * index / segments), 0.0)
-            for index in range(segments)
-        ]
-        points.append(vkt.Point(radius, 0.0, 0.0))
-        return points
-
     @classmethod
-    def _add_pedestal_geometry(cls, objects: list, data: dict, steel, secondary_steel) -> None:
-        pedestal_radius = data["pedestal_diameter"] / 2.0
-        clear_radius = max(0.0, pedestal_radius - data["cover"])
-        frame_radius = cls._pedestal_frame_radius(data)
-        frame_z_bottom = cls._pedestal_frame_bottom_z(data)
-        tie_z_bottom = data["foundation_center_thickness"] + data["cover"]
-        z_top = data["foundation_center_thickness"] + data["pedestal_height"] - data["cover"]
-        frame_size = cls._visual_bar_size(data["pedestal_grid_bar_diameter"], multiplier=4.0, minimum=70.0)
-        tie_size = cls._visual_bar_size(data["pedestal_tie_diameter"], multiplier=4.0, minimum=55.0)
-
-        offsets = cls._sample_positions(
-            cls._positions_between(-frame_radius, frame_radius, data["pedestal_grid_spacing"]),
-            max_count=13,
-        )
-        for index, x in enumerate(offsets):
-            y_half = math.sqrt(max(0.0, frame_radius * frame_radius - x * x))
-            cls._add_vertical_rect_y(objects, x, -y_half, y_half, frame_z_bottom, z_top, frame_size, steel, f"ped-y-frame-{index}")
-
-        for index, y in enumerate(offsets):
-            x_half = math.sqrt(max(0.0, frame_radius * frame_radius - y * y))
-            cls._add_vertical_rect_x(objects, -x_half, x_half, y, frame_z_bottom, z_top, frame_size, steel, f"ped-x-frame-{index}")
-
-        tie_positions = cls._sample_positions(
-            cls._positions_between(tie_z_bottom, z_top, data["pedestal_tie_spacing"]),
-            max_count=10,
-        )
-        for index, z in enumerate(tie_positions):
-            cls._add_geometry_ring(objects, clear_radius, z, tie_size, secondary_steel, 36, f"pedestal-tie-{index}")
-
-    @classmethod
-    def _add_pile_geometry(cls, objects: list, data: dict, steel, light_steel) -> None:
-        pile_vertical_axis_radius = max(
-            0.0,
-            data["pile_diameter"] / 2.0 - data["cover"] - data["pile_vertical_diameter"] / 2.0,
-        )
-        pile_hoop_axis_radius = max(
-            0.0,
-            data["pile_diameter"] / 2.0 - data["cover"] - data["pile_hoop_diameter"] / 2.0,
-        )
-        if pile_vertical_axis_radius <= 0.0 or pile_hoop_axis_radius <= 0.0:
-            return
-
-        vertical_size = cls._visual_bar_size(data["pile_vertical_diameter"], multiplier=3.5, minimum=50.0)
-        hoop_size = cls._visual_bar_size(data["pile_hoop_diameter"], multiplier=3.5, minimum=45.0)
-        vertical_count = min(max(data["pile_vertical_count"], 4), 8)
-        z_bottom = -data["pile_depth"] + data["cover"]
-        hoop_z_top = -data["cover"]
-        hoop_positions = cls._sample_positions(
-            cls._positions_between(z_bottom, hoop_z_top, data["pile_hoop_spacing"]),
-            max_count=4,
-        )
-
-        for pile_index, pile in enumerate(data["pile_centers"]):
-            cx = pile["x"]
-            cy = pile["y"]
-            vertical_z_top = cls._pile_vertical_top_z(data, math.hypot(cx, cy))
-            for bar_index in range(vertical_count):
-                angle = 2.0 * math.pi * bar_index / vertical_count
-                x = cx + pile_vertical_axis_radius * math.cos(angle)
-                y = cy + pile_vertical_axis_radius * math.sin(angle)
-                cls._add_geometry_bar(
-                    objects,
-                    (x, y, z_bottom),
-                    (x, y, vertical_z_top),
-                    vertical_size,
-                    steel,
-                    f"pile-{pile_index}-vertical-{bar_index}",
-                )
-            for hoop_index, z in enumerate(hoop_positions):
-                cls._add_geometry_ring(
-                    objects,
-                    pile_hoop_axis_radius,
-                    z,
-                    hoop_size,
-                    light_steel,
-                    16,
-                    f"pile-{pile_index}-hoop-{hoop_index}",
-                    center=(cx, cy),
-                )
-
-    @staticmethod
-    def _visual_bar_size(diameter: float, multiplier: float = 3.2, minimum: float = 50.0, maximum: float = 120.0) -> float:
-        return min(maximum, max(minimum, diameter * multiplier))
-
-    @classmethod
-    def _add_vertical_rect_y(
-        cls,
-        objects: list,
-        x: float,
-        y_min: float,
-        y_max: float,
-        z_bottom: float,
-        z_top: float,
-        size: float,
-        material,
-        identifier: str,
-    ) -> None:
-        cls._add_geometry_bar(objects, (x, y_min, z_bottom), (x, y_max, z_bottom), size, material, f"{identifier}-bottom")
-        cls._add_geometry_bar(objects, (x, y_min, z_top), (x, y_max, z_top), size, material, f"{identifier}-top")
-        cls._add_geometry_bar(objects, (x, y_min, z_bottom), (x, y_min, z_top), size, material, f"{identifier}-side-a")
-        cls._add_geometry_bar(objects, (x, y_max, z_bottom), (x, y_max, z_top), size, material, f"{identifier}-side-b")
-
-    @classmethod
-    def _add_vertical_rect_x(
-        cls,
-        objects: list,
-        x_min: float,
-        x_max: float,
-        y: float,
-        z_bottom: float,
-        z_top: float,
-        size: float,
-        material,
-        identifier: str,
-    ) -> None:
-        cls._add_geometry_bar(objects, (x_min, y, z_bottom), (x_max, y, z_bottom), size, material, f"{identifier}-bottom")
-        cls._add_geometry_bar(objects, (x_min, y, z_top), (x_max, y, z_top), size, material, f"{identifier}-top")
-        cls._add_geometry_bar(objects, (x_min, y, z_bottom), (x_min, y, z_top), size, material, f"{identifier}-side-a")
-        cls._add_geometry_bar(objects, (x_max, y, z_bottom), (x_max, y, z_top), size, material, f"{identifier}-side-b")
-
-    @classmethod
-    def _add_geometry_ring(
+    def _add_concrete_cylinder(
         cls,
         objects: list,
         radius: float,
-        z: float,
-        size: float,
+        z_min: float,
+        height: float,
         material,
-        segments: int,
         identifier: str,
         center: tuple[float, float] = (0.0, 0.0),
     ) -> None:
-        if radius <= 0.0:
+        if radius <= 0.0 or height <= 0.0:
             return
 
-        cx, cy = center
-        for index in range(segments):
-            start_angle = 2.0 * math.pi * index / segments
-            end_angle = 2.0 * math.pi * (index + 1) / segments
-            start = (cx + radius * math.cos(start_angle), cy + radius * math.sin(start_angle), z)
-            end = (cx + radius * math.cos(end_angle), cy + radius * math.sin(end_angle), z)
-            cls._add_geometry_bar(objects, start, end, size, material, f"{identifier}-{index}")
-
-    @staticmethod
-    def _add_geometry_bar(
-        objects: list,
-        start: tuple[float, float, float],
-        end: tuple[float, float, float],
-        size: float,
-        material,
-        identifier: str,
-    ) -> None:
-        if math.dist(start, end) < 1.0:
-            return
-
-        line = vkt.Line(vkt.Point(start[0], start[1], start[2]), vkt.Point(end[0], end[1], end[2]))
-        objects.append(vkt.RectangularExtrusion(size, size, line, material=material, identifier=identifier))
+        line = vkt.Line(vkt.Point(center[0], center[1], z_min), vkt.Point(center[0], center[1], z_min + height))
+        try:
+            objects.append(
+                vkt.CircularExtrusion(
+                    diameter=2.0 * radius,
+                    line=line,
+                    material=material,
+                    identifier=identifier,
+                )
+            )
+        except TypeError:
+            objects.append(
+                vkt.CircularExtrusion(
+                    diameter=2.0 * radius,
+                    line=line,
+                    material=material,
+                )
+            )
 
     @classmethod
     def _section_svg(cls, data: dict) -> str:
