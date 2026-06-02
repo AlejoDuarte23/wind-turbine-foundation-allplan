@@ -1180,7 +1180,7 @@ def pedestal_frame_radius(data: dict) -> float:
 
 def pedestal_frame_bottom_z(data: dict) -> float:
     center_h = data["foundation_center_thickness"]
-    bottom_slab_embed_z = data["foundation_edge_thickness"] * 0.75
+    bottom_slab_embed_z = data["foundation_edge_thickness"] * 0.875
     bottom_rebar_clearance_z = data["cover"] + max(
         250.0,
         3.0
