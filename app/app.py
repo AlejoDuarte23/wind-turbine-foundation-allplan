@@ -18,15 +18,15 @@ class Parametrization(vkt.Parametrization):
         "Visual rebar geometry for a circular pile cap, circular pedestal, and piles. "
         "Dimensions are in millimeters."
     )
-    geometry.foundation_diameter = vkt.NumberField("Foundation diameter", default=14000.0, min=5000.0, suffix="mm", flex=50)
-    geometry.foundation_edge_thickness = vkt.NumberField("Foundation edge thickness", default=900.0, min=300.0, suffix="mm", flex=50)
+    geometry.foundation_diameter = vkt.NumberField("Foundation diameter", default=14500.0, min=5000.0, suffix="mm", flex=50)
+    geometry.foundation_edge_thickness = vkt.NumberField("Foundation edge thickness", default=1200.0, min=300.0, suffix="mm", flex=50)
     geometry.foundation_center_thickness = vkt.NumberField("Foundation center thickness", default=1800.0, min=500.0, suffix="mm", flex=50)
-    geometry.pedestal_diameter = vkt.NumberField("Pedestal diameter", default=4200.0, min=1000.0, suffix="mm", flex=50)
-    geometry.pedestal_height = vkt.NumberField("Pedestal height", default=2200.0, min=500.0, suffix="mm", flex=50)
-    geometry.pile_count = vkt.IntegerField("Number of piles", default=12, min=3, max=32, flex=50)
-    geometry.pile_edge_distance = vkt.NumberField("Pile edge distance", default=600.0, min=0.0, suffix="mm", flex=50)
-    geometry.pile_diameter = vkt.NumberField("Pile diameter", default=700.0, min=250.0, suffix="mm", flex=50)
-    geometry.pile_depth = vkt.NumberField("Pile length", default=12000.0, min=1000.0, suffix="mm", flex=50)
+    geometry.pedestal_diameter = vkt.NumberField("Pedestal diameter", default=6000.0, min=1000.0, suffix="mm", flex=50)
+    geometry.pedestal_height = vkt.NumberField("Pedestal height", default=1000.0, min=500.0, suffix="mm", flex=50)
+    geometry.pile_count = vkt.IntegerField("Number of piles", default=24, min=3, max=32, flex=50)
+    geometry.pile_edge_distance = vkt.NumberField("Pile edge distance", default=750.0, min=0.0, suffix="mm", flex=50)
+    geometry.pile_diameter = vkt.NumberField("Pile diameter", default=400.0, min=250.0, suffix="mm", flex=50)
+    geometry.pile_depth = vkt.NumberField("Pile length", default=10000.0, min=1000.0, suffix="mm", flex=50)
 
     reinforcement = vkt.Section("Reinforcement", initially_expanded=True)
     reinforcement.cover = vkt.NumberField("Concrete cover", default=75.0, min=25.0, max=200.0, suffix="mm", flex=50)
