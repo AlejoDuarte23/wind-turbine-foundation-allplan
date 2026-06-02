@@ -1132,7 +1132,7 @@ class Controller(vkt.Controller):
     @staticmethod
     def _pedestal_frame_bottom_z(data: dict) -> float:
         center_h = data["foundation_center_thickness"]
-        bottom_slab_center_z = data["foundation_edge_thickness"] * 0.5
+        bottom_slab_embed_z = data["foundation_edge_thickness"] * 0.75
         bottom_rebar_clearance_z = data["cover"] + max(
             250.0,
             3.0
@@ -1145,7 +1145,7 @@ class Controller(vkt.Controller):
         )
         return min(
             center_h - data["cover"],
-            max(bottom_slab_center_z, bottom_rebar_clearance_z),
+            max(bottom_slab_embed_z, bottom_rebar_clearance_z),
         )
 
     @staticmethod
