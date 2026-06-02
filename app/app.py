@@ -1000,7 +1000,7 @@ class Controller(vkt.Controller):
 
         pedestal_section_rebar = []
         grid_half = cls._pedestal_frame_radius(data)
-        grid_bottom_z = cls._pedestal_frame_bottom_z(data)
+        grid_bottom_z = cover
         grid_top_z = center_h + pedestal_h - cover
         tie_half = max(0.0, pedestal_radius - cover)
         tie_bottom_z = grid_bottom_z
@@ -1012,18 +1012,30 @@ class Controller(vkt.Controller):
         )
         tie_positions = cls._sample_positions(
             cls._positions_between(tie_bottom_z, grid_top_z, data["pedestal_tie_spacing"]),
-            max_count=12,
+            max_count=18,
         )
         for z in tie_positions:
+            embedded = z < center_h
+            stroke = "#4f4f4f" if embedded else "#777777"
+            stroke_width = 1.15 if embedded else 0.85
             pedestal_section_rebar.append(
                 f'<line x1="{sx(-tie_half):.2f}" y1="{sy(z):.2f}" '
                 f'x2="{sx(tie_half):.2f}" y2="{sy(z):.2f}" '
-                f'stroke="#777777" stroke-width="0.85" stroke-dasharray="7 5"/>'
+                f'stroke="{stroke}" stroke-width="{stroke_width:.2f}"/>'
+            )
+            pedestal_section_rebar.append(cls._section_dot(sx(-tie_half), sy(z), 2.15, stroke))
+            pedestal_section_rebar.append(cls._section_dot(sx(tie_half), sy(z), 2.15, stroke))
+
+        embedded_bar_positions = cls._equal_values(-grid_half + 220.0, grid_half - 220.0, 6)
+        for x_offset in embedded_bar_positions:
+            pedestal_section_rebar.append(
+                f'<line x1="{sx(x_offset):.2f}" y1="{sy(center_h - cover):.2f}" '
+                f'x2="{sx(x_offset):.2f}" y2="{sy(grid_bottom_z):.2f}" '
+                f'stroke="#575757" stroke-width="0.8" stroke-dasharray="5 6"/>'
             )
         section_bar_positions = cls._equal_values(-grid_half + 160.0, grid_half - 160.0, 10)
         for x_offset in section_bar_positions:
-            for z in [grid_top_z, grid_bottom_z]:
-                pedestal_section_rebar.append(cls._section_dot(sx(x_offset), sy(z), dot_radius, "#4d4d4d", stroke="#222222"))
+            pedestal_section_rebar.append(cls._section_dot(sx(x_offset), sy(grid_top_z), dot_radius, "#4d4d4d", stroke="#222222"))
 
         return f"""
       <text x="{panel_x:.0f}" y="{panel_y:.0f}" font-size="16" font-weight="650" fill="#111">Section</text>
