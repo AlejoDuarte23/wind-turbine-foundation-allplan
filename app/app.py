@@ -998,7 +998,7 @@ class Controller(vkt.Controller):
 
         pedestal_section_rebar = []
         grid_half = cls._pedestal_frame_radius(data)
-        grid_bottom_z = cls._pedestal_frame_bottom_z(data)
+        grid_bottom_z = cover
         grid_top_z = center_h + pedestal_h - cover
         tie_half = max(0.0, pedestal_radius - cover)
         tie_bottom_z = grid_bottom_z
