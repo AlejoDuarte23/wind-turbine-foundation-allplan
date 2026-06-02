@@ -36,7 +36,6 @@ class Parametrization(vkt.Parametrization):
     reinforcement.ring_spacing = vkt.NumberField("Circular base bar spacing", default=550.0, min=150.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_bar_diameter = vkt.NumberField("Pedestal grid bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_spacing = vkt.NumberField("Pedestal grid spacing", default=350.0, min=100.0, suffix="mm", flex=50)
-    reinforcement.pedestal_frame_embed_depth = vkt.NumberField("Pedestal frame embed depth", default=1200.0, min=0.0, suffix="mm", flex=50)
     reinforcement.pedestal_tie_diameter = vkt.NumberField("Pedestal tie diameter", default=12.0, min=6.0, suffix="mm", flex=50)
     reinforcement.pedestal_tie_spacing = vkt.NumberField("Pedestal tie spacing", default=250.0, min=75.0, suffix="mm", flex=50)
     reinforcement.pile_vertical_diameter = vkt.NumberField("Pile vertical bar diameter", default=16.0, min=8.0, suffix="mm", flex=50)
@@ -153,7 +152,6 @@ class Controller(vkt.Controller):
             "ring_spacing": float(params.reinforcement.ring_spacing),
             "pedestal_grid_bar_diameter": float(params.reinforcement.pedestal_grid_bar_diameter),
             "pedestal_grid_spacing": float(params.reinforcement.pedestal_grid_spacing),
-            "pedestal_frame_embed_depth": float(params.reinforcement.pedestal_frame_embed_depth),
             "pedestal_tie_diameter": float(params.reinforcement.pedestal_tie_diameter),
             "pedestal_tie_spacing": float(params.reinforcement.pedestal_tie_spacing),
             "pile_vertical_diameter": float(params.reinforcement.pile_vertical_diameter),
@@ -1000,7 +998,7 @@ class Controller(vkt.Controller):
 
         pedestal_section_rebar = []
         grid_half = cls._pedestal_frame_radius(data)
-        grid_bottom_z = cover
+        grid_bottom_z = cls._pedestal_frame_bottom_z(data)
         grid_top_z = center_h + pedestal_h - cover
         tie_half = max(0.0, pedestal_radius - cover)
         tie_bottom_z = grid_bottom_z
@@ -1134,8 +1132,7 @@ class Controller(vkt.Controller):
     @staticmethod
     def _pedestal_frame_bottom_z(data: dict) -> float:
         center_h = data["foundation_center_thickness"]
-        requested_bottom_z = center_h - data.get("pedestal_frame_embed_depth", center_h * 2.0 / 3.0)
-        lower_third_z = center_h / 3.0
+        bottom_slab_center_z = data["foundation_edge_thickness"] * 0.5
         bottom_rebar_clearance_z = data["cover"] + max(
             250.0,
             3.0
@@ -1148,7 +1145,7 @@ class Controller(vkt.Controller):
         )
         return min(
             center_h - data["cover"],
-            max(requested_bottom_z, lower_third_z, bottom_rebar_clearance_z),
+            max(bottom_slab_center_z, bottom_rebar_clearance_z),
         )
 
     @staticmethod
