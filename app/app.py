@@ -31,7 +31,7 @@ class Parametrization(vkt.Parametrization):
     reinforcement = vkt.Section("Reinforcement", initially_expanded=True)
     reinforcement.cover = vkt.NumberField("Concrete cover", default=75.0, min=25.0, max=200.0, suffix="mm", flex=50)
     reinforcement.top_radial_bar_diameter = vkt.NumberField("Radial bar diameter", default=25.0, min=8.0, suffix="mm", flex=50)
-    reinforcement.top_radial_bar_count = vkt.NumberField("Radial bar count", default=32, min=8, max=96, flex=50)
+    reinforcement.top_radial_bar_count = vkt.NumberField("Radial bar count", default=32, min=8, max=700, flex=50)
     reinforcement.ring_bar_diameter = vkt.NumberField("Circular base bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
     reinforcement.ring_spacing = vkt.NumberField("Circular base bar spacing", default=550.0, min=150.0, suffix="mm", flex=50)
     reinforcement.pedestal_grid_bar_diameter = vkt.NumberField("Pedestal grid bar diameter", default=20.0, min=8.0, suffix="mm", flex=50)
